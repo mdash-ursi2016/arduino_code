@@ -1,3 +1,7 @@
+/*  This program obtains ECG readings from file via a Python script that uses the
+ *  pySerial library, uses the Pan-Tompkins QRS-detection algorithm to calculate 
+ *  the corresponding Beats Per Minute (BPM), and prints the BPM data. */
+
 /* The portions of this code that implement the Pan-Tompkins QRS-detection algorithm were 
  *  modified from code taken from Blake Milner's real_time_QRS_detection GitHub repository:
  https://github.com/blakeMilner/real_time_QRS_detection/blob/master/QRS_arduino/QRS.ino */

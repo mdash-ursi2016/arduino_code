@@ -1,3 +1,6 @@
+// This program continuously sends a stream of numbers that go up and down
+// to a central device via BLE
+
 #include <BLEPeripheral.h>
 #include <BLEDescriptor.h>
 #include <BLEUuid.h>

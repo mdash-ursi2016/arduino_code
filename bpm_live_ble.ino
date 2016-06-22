@@ -1,15 +1,56 @@
 /*  This program obtains live ECG readings from a sensor, uses the Pan-Tompkins 
  *  QRS-detection algorithm to calculate the corresponding Beats Per Minute (BPM), 
- *  and prints the BPM data to the serial monitor. */
+ *  and sends the BPM data to a central device using the BLE Heart Rate Service. */
 
 /* The portions of this code that implement the Pan-Tompkins QRS-detection algorithm were 
  *  modified from code taken from Blake Milner's real_time_QRS_detection GitHub repository:
  https://github.com/blakeMilner/real_time_QRS_detection/blob/master/QRS_arduino/QRS.ino */
 
+
+/* This comment pertains to the incorporation of the CurieBLE library:
+ *  
+   Copyright (c) 2015 Intel Corporation.  All rights reserved.
+
+   This library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+
+   This library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with this library; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+*/
+
 #include "CurieTimerOne.h"
 #include <QueueArray.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <BLEPeripheral.h>
+#include <BLEDescriptor.h>
+#include <BLEUuid.h>
+#include <BLECommon.h>
+#include <BLEAttribute.h>
+#include <BLETypedCharacteristics.h>
+#include <CurieBLE.h>
+#include <BLECentral.h>
+#include <BLEService.h>
+#include <BLECharacteristic.h>
+#include <BLETypedCharacteristic.h>
+
+BLEPeripheral blePeripheral;       // BLE Peripheral Device (the board you're programming)
+BLEService heartRateService("180D"); // BLE Heart Rate Service
+
+// BLE Heart Rate Measurement Characteristic"
+BLECharacteristic heartRateChar("2A37",  // standard 16-bit characteristic UUID
+    BLERead | BLENotify, 2);  
+    // remote clients will be able to get notifications if this characteristic changes
+    // the characteristic is 2 bytes long as the first field needs to be "Flags" as per BLE specifications
+//https://developer.bluetooth.org/gatt/characteristics/Pages/CharacteristicViewer.aspx?u=org.bluetooth.characteristic.heart_rate_measurement.xml
 
 #define M             5
 #define N             30
@@ -20,6 +61,7 @@
 // resolution of RNG
 #define RAND_RES 100000000
 
+const int LED_PIN = 13;                  // the number of the LED pin (digital)
 const int ECG_PIN = A0;                  // the number of the ECG pin (analog)
 
 // pins for leads off detection
@@ -48,10 +90,29 @@ const int frequency = 5000; // rate at which the heart rate is checked
 
 QueueArray<int> queue; // holds the BPMs to be printed
 
+bool ble_connected = false;
+
+BLECentral central = blePeripheral.central();
+
 void setup() { // called when the program starts
+
+    /* Set a local name for the BLE device
+     This name will appear in advertising packets
+     and can be used by remote devices to identify this BLE device
+     The name can be changed but maybe be truncated based on space left in advertisement packet */
+  blePeripheral.setLocalName("MerryGoRound");
+  blePeripheral.setAdvertisedServiceUuid(heartRateService.uuid());  // add the service UUID
+  blePeripheral.addAttribute(heartRateService);   // Add the BLE Heart Rate service
+  blePeripheral.addAttribute(heartRateChar); // add the Heart Rate Measurement characteristic
   
   Serial.begin(115200); // set up the serial monitor
   while(!Serial);     // wait for the serial monitor
+
+    /* Now activate the BLE device.  It will start continuously transmitting BLE
+     advertising packets and will be visible to remote BLE central devices
+     until it receives a new connection */
+  blePeripheral.begin();
+  Serial.println("Bluetooth device active, waiting for connections...");
 
   pinMode(LEADS_OFF_PLUS_PIN, INPUT); // Setup for leads off detection LO +
   pinMode(LEADS_OFF_MINUS_PIN, INPUT); // Setup for leads off detection LO -
@@ -61,11 +122,41 @@ void setup() { // called when the program starts
 }
 
 void loop() { // called continuously
-  
-  if(!queue.isEmpty()){ // check if there's the BPM to print
-    Serial.println(queue.dequeue()); // print the BPM
-  }
 
+  if(ble_connected){
+    
+    if(central.connected()){
+      
+      if(!queue.isEmpty()){ // check if there's the BPM to print
+
+        int heartRate = queue.dequeue();
+        // Serial.println(heartRate);
+        const unsigned char heartRateCharArray[2] = { 0, (const unsigned char)heartRate };
+         // and update the heart rate measurement characteristic
+        heartRateChar.setValue(heartRateCharArray, 2); 
+        
+      }
+    } else {
+      
+      ble_connected = false;
+      digitalWrite(LED_PIN, LOW);
+      Serial.print("Disconnected from central: ");
+      Serial.println(central.address());
+    }
+    
+  } else {
+      central = blePeripheral.central();
+      
+      if(central){
+        
+        ble_connected = true;
+        Serial.print("Connected to central: ");
+        // print the central's MAC address:
+        Serial.println(central.address());
+        // turn on the LED to indicate the connection:
+        digitalWrite(LED_PIN, HIGH);
+      }
+  }
 }
 
 void updateHeartRate(){ // interrupt handler
