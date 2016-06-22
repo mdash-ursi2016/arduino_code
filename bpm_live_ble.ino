@@ -2,6 +2,23 @@
  *  QRS-detection algorithm to calculate the corresponding Beats Per Minute (BPM), 
  *  and sends the BPM data to a central device using the BLE Heart Rate Service. */
 
+#include "CurieTimerOne.h"
+#include <QueueArray.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <BLEPeripheral.h>
+#include <BLEDescriptor.h>
+#include <BLEUuid.h>
+#include <BLECommon.h>
+#include <BLEAttribute.h>
+#include <BLETypedCharacteristics.h>
+#include <CurieBLE.h>
+#include <BLECentral.h>
+#include <BLEService.h>
+#include <BLECharacteristic.h>
+#include <BLETypedCharacteristic.h>
+
+
 /* The portions of this code that implement the Pan-Tompkins QRS-detection algorithm were 
  *  modified from code taken from Blake Milner's real_time_QRS_detection GitHub repository:
  https://github.com/blakeMilner/real_time_QRS_detection/blob/master/QRS_arduino/QRS.ino */
@@ -25,22 +42,6 @@
    License along with this library; if not, write to the Free Software
    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 */
-
-#include "CurieTimerOne.h"
-#include <QueueArray.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <BLEPeripheral.h>
-#include <BLEDescriptor.h>
-#include <BLEUuid.h>
-#include <BLECommon.h>
-#include <BLEAttribute.h>
-#include <BLETypedCharacteristics.h>
-#include <CurieBLE.h>
-#include <BLECentral.h>
-#include <BLEService.h>
-#include <BLECharacteristic.h>
-#include <BLETypedCharacteristic.h>
 
 BLEPeripheral blePeripheral;       // BLE Peripheral Device (the board you're programming)
 BLEService heartRateService("180D"); // BLE Heart Rate Service
