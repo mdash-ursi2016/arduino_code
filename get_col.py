@@ -2,7 +2,7 @@ import sys
 import re
 
 # takes a text file with comma separated valued and outputs
-# a file with a specified column
+# a file with a specified column in a specific range
 
 def get_col(argv):
 
@@ -12,11 +12,7 @@ def get_col(argv):
 
 	start = int(argv[3]) # what line in the file do you wanna start with
 
-<<<<<<< HEAD
 	end = start + 6000 # how many lines of the file to take
-=======
-	end = start + 3000 # how many lines of the file to take
->>>>>>> 5650f78283af1cfa5ab802710e2fd74e4b6ea29a
 	
 	# get the specified column
 	col = []
@@ -38,3 +34,6 @@ get_col(sys.argv)
 # example:
 
 # ~$ python3 get_col.py the_beat_of_my_heart.txt 1 13800 s1.txt
+
+# the 1 means the second column and the 13800 means start at line
+# 13800 in that file
