@@ -1,0 +1,36 @@
+1. 	write a program that outputs AO reading,timestamp to the serial monitor
+	AO reading should be of values between 0 and 1024 
+2. 	figure out how to write the serial monitor output to a file
+3.	wear the ecg for a few minutes and output its results to said file
+	so that you can use that to simulate someone wearing the monitor without
+	having to hook yourself up
+4. 	use excel or something to plot the data from that file
+5. 	manually identify the first 10-15 peaks and record their time stamps
+6.	calculate their periods and then calculate the corresponding BPMs
+6. 	then, research peak detection algorithms and choose the one you deem most
+	appropriate
+7. 	write another program that reads in data from the file and runs the peak
+	detection algorithm on it to calculate BPM
+8.	compare the BPMs you manually calculated to the ones calculated by the 
+	program to make sure it's working
+9. 	send these BPMs are nate using the BLE heart rate protocol
+	for now we don't need the time stamps
+10. make a new program that combines those first two programs: it can get data
+	from the sensor and send it in the correct increments
+	*** I don't fully understand all the bullets of step 10 ***
+	-- 	in the interrupt handler, we grab a reading and stick it in a 
+		data structure
+	-- 	between these interrupts, we run the peak detector
+	-- 	if there's nothing to do, sleep
+	-- 	sit in a tight loop -- if there head == tail of the circular buffer,
+		sleep (or busy loop, but that's sad)
+	-- 	in the interrupt: 1. read the data, 2. put it in the circular buffer
+	-- 	for now, when it returns from the loop, it processes any necessary 
+		data, prints out new BPM if there is one and sends it to Nate
+AND/OR
+11. write an arduino program that reads in data from the file -- the raw ecg
+	data, NOT the calculated BPMs -- and sents that data to Nate for the ecg
+	graph
+	--	data should be sent in a 14-item array of 16 bit data
+	--	figure out how to make a custom BLE protocol for this
+	--	this will need a lot of figuring out
