@@ -188,7 +188,7 @@ void updateHeartRate(){ // interrupt handler
     
     // only read data if ECG chip has detected that leads are attached to patient
     boolean leads_are_on = (digitalRead(LEADS_OFF_PLUS_PIN) == 0) && (digitalRead(LEADS_OFF_MINUS_PIN) == 0);
-    if(leads_are_on){     
+    if(leads_are_on && ble_connected){     
            
       // read next ECG data point
       int next_ecg_pt = analogRead(ECG_PIN);
