@@ -238,8 +238,14 @@ void loop() { // called continuously
         unsigned char ts2 = (timeStamp >> 16) & 0xff;    // bluetooth compatible format
         unsigned char ts3 = (timeStamp >> 24) & 0xff;
 
-        // package the the BPM and time stamp
-        unsigned char bpmCharArray[8] = { 0, 0, 0, (unsigned char) fromMemBuff[0], ts3, ts2, ts1, ts0 };
+//        #ifdef usb
+//        Serial.print(fromMemBuff[0]);
+//        Serial.print(", ");
+//        Serial.println(timeStamp);
+//        #endif
+        
+        // package the the BPM and time stamp, switching to big-endian
+        unsigned char bpmCharArray[8] = { (unsigned char) fromMemBuff[0], 0, 0, 0, ts0, ts1, ts2, ts3 };
         bpmChar.setValue(bpmCharArray, 8); // send them to the phone
       }
 
