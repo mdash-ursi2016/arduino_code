@@ -88,8 +88,12 @@ boolean ble_connected = false;  // keeps track of whether the Bluetooth is conne
 BLEPeripheral blePeripheral; // BLE Peripheral Device (the board you're programming)
 BLEService myService("aa7b3c40-f6ed-4ffc-bc29-5750c59e74b3"); // BLE Heart Rate Service
 
+//// Custom BLE characteristic to hold the initial time
+BLECharacteristic timeChar("95d344f4-c6ad-48d8-8877-661ab4d41e5b",  
+    BLERead | BLEWrite, 8);  
+
 // Custom BLE characteristic to hold BPM
-BLECharacteristic bpmChar("95d344f4-c6ad-48d8-8877-661ab4d41e5b",  
+BLECharacteristic bpmChar("b0351694-25e6-4eb5-918c-ca9403ddac47",  
     BLERead | BLENotify, 8);  
 
 // Custom BLE characteristic to hold chunks of raw ECG measurements
@@ -198,6 +202,7 @@ void setUpBLE() {
     blePeripheral.setLocalName("Neptune");
     blePeripheral.setAdvertisedServiceUuid(myService.uuid());  // add the service UUID
     blePeripheral.addAttribute(myService);   // add the BLE service
+    blePeripheral.addAttribute(timeChar); // add the time characteristic
     blePeripheral.addAttribute(bpmChar); // add the BPM characteristic
     blePeripheral.addAttribute(ecgChar); // add the ECG characteristic
   
@@ -238,11 +243,11 @@ void loop() { // called continuously
         unsigned char ts2 = (timeStamp >> 16) & 0xff;    // bluetooth compatible format
         unsigned char ts3 = (timeStamp >> 24) & 0xff;
 
-//        #ifdef usb
-//        Serial.print(fromMemBuff[0]);
-//        Serial.print(", ");
-//        Serial.println(timeStamp);
-//        #endif
+        #ifdef usb
+        Serial.print(fromMemBuff[0]);
+        Serial.print(", ");
+        Serial.println(timeStamp);
+        #endif
         
         // package the the BPM and time stamp, switching to big-endian
         unsigned char bpmCharArray[8] = { (unsigned char) fromMemBuff[0], 0, 0, 0, ts0, ts1, ts2, ts3 };
@@ -289,6 +294,25 @@ void loop() { // called continuously
         // print the central's MAC address:
         Serial.println(central.address());
         #endif
+        
+        while(!timeChar.written()){
+          delay(1);
+        }
+                
+        const unsigned char *fromPhone;
+        fromPhone = timeChar.value();
+        unsigned long ts0 = ((unsigned long) fromPhone[0]);
+        unsigned long ts1 = ((unsigned long) fromPhone[1]) << 8;
+        unsigned long ts2 = ((unsigned long) fromPhone[2]) << 16;
+        unsigned long ts3 = ((unsigned long) fromPhone[3]) << 24;
+        unsigned long initTime = ts0 | ts1 | ts2 | ts3;
+
+        setTime(initTime);
+
+        #ifdef usb
+        Serial.println("time has been set");
+        #endif
+        
         delay(1000);
         ble_connected = true; // recently moved from top to bottom
       }
