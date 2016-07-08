@@ -27,29 +27,28 @@
 #include <CurieTime.h>
 #include <SerialFlash.h>
 
-#define usb // COMMENT THIS OUT IF CONNECTED TO BATTERY INSTEAD OF COMPUTER
+// #define usb // COMMENT THIS OUT IF CONNECTED TO BATTERY INSTEAD OF COMPUTER
 
 /* The portions of this code that implement the Pan-Tompkins QRS-detection algorithm were 
  *  modified from code taken from Blake Milner's real_time_QRS_detection GitHub repository:
  https://github.com/blakeMilner/real_time_QRS_detection/blob/master/QRS_arduino/QRS.ino */
 
-unsigned long BPMcounter = 0; 
-
+#define LED_PIN 13                  // the number of the LED pin (digital)
 #define ECG_PIN A0                  // the number of the ECG pin (analog)
-#define LED_PIN 13
 
 // pins for leads off detection
 const int LEADS_OFF_PLUS_PIN  = 10;      // the number of the LO+ pin (digital)
 const int LEADS_OFF_MINUS_PIN = 11;      // the number of the LO- pin (digital) 
 
-const int frequency = 5000; // rate at which the heart rate is checked
+const int frequency = 1000000; // rate at which the heart rate is checked
                             // (in microseconds): works out to 200 hz
 
 QueueArray<int> bpm_queue; // holds the BPMs to be printed
 
 QueueArray<int> ecg_queue; // holds the ECGs to be printed
 
-int ecg_q_count = 0; // used to space out the ECG measurements sent to
+int BPMcounter = 0; 
+int ECGcounter = 0; // used to space out the ECG measurements sent to
 
 boolean safeToFill = true; // used to prevent the ECG measurement queue
                            // from being added to too early after the 
@@ -57,17 +56,15 @@ boolean safeToFill = true; // used to prevent the ECG measurement queue
 
 // Memory management stuff ------------------------
 
-#define FSIZE 256
-// #define FSIZE 524288 // size of a file in memory
+#define FSIZE 2048 // size of a file in memory
 #define DSIZE 8   // size of each unit of data stored in memory (BPM + time stamp)
 
 const char *filenameA = "fileA.txt"; 
 const char *filenameB = "fileB.txt";
 
-SerialFlashFile fileA, fileB, currentWriteFile, currentReadFile;
+SerialFlashFile fileA, fileB, currentFile;
 
-boolean onWriteFileA;         // keeps track of which file we're on
-boolean onReadFileA;         // keeps track of which file we're on
+boolean onFileA;              // keeps track of which file we're on
 
 unsigned long startOfA;       // address of the start of fileA
 unsigned long startOfB;       // address of the start of fileB
@@ -168,16 +165,8 @@ void setUpFlash() { // sets up the flash chip for memory management
     #endif
   }
 
-  #ifdef usb
-  Serial.println("Erasing flash chip...");
-  #endif
-  
   SerialFlash.eraseAll();
   while(!SerialFlash.ready());
-
-  #ifdef usb
-  Serial.println("Flash chip erased");
-  #endif
 
   // create file A and B if they don't already exist
   if ((!create_if_not_exists(filenameA)) || (!create_if_not_exists(filenameB))) {
@@ -190,14 +179,11 @@ void setUpFlash() { // sets up the flash chip for memory management
   fileA = SerialFlash.open(filenameA); // open both files and assign
   fileB = SerialFlash.open(filenameB); // them to global variables
 
-  onWriteFileA = true; // we need to keep track of which file we're
-  onReadFileA = true; // we need to keep track of which file we're
+  onFileA = true; // we need to keep track of which file we're
+  currentFile = fileA; // currently writing to 
 
-  currentWriteFile = fileA; // currently writing to 
-  currentReadFile = fileA;
-
-  nextToPlace = currentWriteFile.position(); // begin at the beginning of 
-  nextToRetrieve = currentReadFile.position(); // the first file 
+  nextToPlace = currentFile.position(); // begin at the beginning of 
+  nextToRetrieve = currentFile.position(); // the first file 
   
 }
 
@@ -219,7 +205,7 @@ boolean create_if_not_exists (const char *filename) {
 void setUpBLE() {
   
     /* Set a local name for the BLE device */
-    blePeripheral.setLocalName("Neptune");
+    blePeripheral.setLocalName("Nora");
     blePeripheral.setAdvertisedServiceUuid(myService.uuid());  // add the service UUID
     blePeripheral.addAttribute(myService);   // add the BLE service
     blePeripheral.addAttribute(timeChar); // add the time characteristic
@@ -257,7 +243,7 @@ void loop() { // called continuously
 
       if (retrieveFromMemory()){ // only update the characteristic if new data was read
         
-        unsigned long timeStamp = fromMemBuff[1]; // get the time stamp
+        unsigned long timeStamp =  fromMemBuff[1]; // get the time stamp
         unsigned char ts0 = timeStamp & 0xff;      // get each byte from the time stamp separately
         unsigned char ts1 = (timeStamp >> 8) & 0xff;  // so that the time stamp can be sent in a
         unsigned char ts2 = (timeStamp >> 16) & 0xff;    // bluetooth compatible format
@@ -308,32 +294,33 @@ void loop() { // called continuously
       central = blePeripheral.central();
       
       if(central){ // when we've successfully connected to the phone
+
         #ifdef usb
         Serial.print("Connected to central: ");
         // print the central's MAC address:
         Serial.println(central.address());
         #endif
-        
-//        while(!timeChar.written()){
-//          delay(1);
-//        }
-//                
-//        const unsigned char *fromPhone;
-//        fromPhone = timeChar.value();
-//        unsigned long ts0 = ((unsigned long) fromPhone[0]);
-//        unsigned long ts1 = ((unsigned long) fromPhone[1]) << 8;
-//        unsigned long ts2 = ((unsigned long) fromPhone[2]) << 16;
-//        unsigned long ts3 = ((unsigned long) fromPhone[3]) << 24;
-//        unsigned long initTime = ts0 | ts1 | ts2 | ts3;
-//
-//        setTime(initTime);
-//
-//        #ifdef usb
-//        Serial.println("time has been set");
-//        #endif
-        
-        digitalWrite(LED_PIN, HIGH);
 
+        digitalWrite(LED_PIN, HIGH);
+        
+        while(!timeChar.written()){
+          delay(1);
+        }
+                
+        const unsigned char *fromPhone;
+        fromPhone = timeChar.value();
+        unsigned long ts0 = ((unsigned long) fromPhone[0]);
+        unsigned long ts1 = ((unsigned long) fromPhone[1]) << 8;
+        unsigned long ts2 = ((unsigned long) fromPhone[2]) << 16;
+        unsigned long ts3 = ((unsigned long) fromPhone[3]) << 24;
+        unsigned long initTime = ts0 | ts1 | ts2 | ts3;
+
+        setTime(initTime);
+
+        #ifdef usb
+        Serial.println("time has been set");
+        #endif
+        
         delay(1000);
         ble_connected = true; // recently moved from top to bottom
       }
@@ -342,18 +329,18 @@ void loop() { // called continuously
 
 void placeInMemory() { // store BPMs and timestamps on the flash chip
   
-  currentWriteFile.seek(nextToPlace);
-  currentWriteFile.write(toMemBuff, DSIZE);
+  currentFile.seek(nextToPlace);
+  currentFile.write(toMemBuff, DSIZE);
   nextToPlace += DSIZE;
 
   // check if it's time to switch files
-  if(onWriteFileA){
+  if(onFileA){
     if(nextToPlace + DSIZE >= startOfA + FSIZE){
-      switchWriteFiles();
+      switchFiles();
     }
   } else {
     if(nextToPlace + DSIZE >= startOfB + FSIZE){
-      switchWriteFiles();
+      switchFiles();
     }
   }
 }
@@ -363,287 +350,67 @@ boolean retrieveFromMemory() { // retrieve BPMs and time stamps from the flash
   if(nextToRetrieve == nextToPlace){
     return false; // if we're caught up, don't try to read any data
   }
-  currentReadFile.seek(nextToRetrieve);
-  currentReadFile.read(fromMemBuff, DSIZE);
+  currentFile.seek(nextToRetrieve);
+  currentFile.read(fromMemBuff, DSIZE);
   nextToRetrieve += DSIZE;
-
-    // check if it's time to switch files
-  if(onReadFileA){
-    if(nextToRetrieve + DSIZE >= startOfA + FSIZE){
-      switchReadFiles();
-    }
-  } else {
-    if(nextToRetrieve + DSIZE >= startOfB + FSIZE){
-      switchReadFiles();
-    }
-  }
   return true;
 }
 
 // when one file in memory gets full, we erase it
 //  and start writing to the next file
-void switchWriteFiles() {
+void switchFiles() {
 
   #ifdef usb
-  Serial.println("switching write files");
+  Serial.println("switching files");
   #endif
   
   // if we're currently on fileA, switch to fileB
-  if(onWriteFileA){
-    fileB.erase();
+  if(onFileA){
     nextToPlace = startOfB;
-    currentWriteFile = fileB;
-    onWriteFileA = false;
-    if(!onReadFileA){
-      switchReadFiles();
-    }
-    
-  // if we're currently on fileB, switch to fileA  
-  } else {
-    fileA.erase();
-    nextToPlace = startOfA;
-    currentWriteFile = fileA;
-    onWriteFileA = true;
-    if(onReadFileA){
-      switchReadFiles();
-    }
-  }
-  
-}
-
-
-// when one file in memory gets full, we erase it
-//  and start writing to the next file
-void switchReadFiles() {
-
-  #ifdef usb
-  Serial.println("switching read files");
-  #endif
-  
-  // if we're currently on fileA, switch to fileB
-  if(onReadFileA){
     nextToRetrieve = startOfB;
-    currentReadFile = fileB;
-    onReadFileA = false;
+    currentFile = fileB;
+    onFileA = false;
+    fileA.erase();
     
   // if we're currently on fileB, switch to fileA  
   } else {
+    nextToPlace = startOfA;
     nextToRetrieve = startOfA;
-    currentReadFile = fileA;
-    onReadFileA = true;
+    currentFile = fileA;
+    onFileA = true;
+    fileB.erase();
   }
   
 }
 
 void updateHeartRate(){ // interrupt handler
- 
-    boolean QRS_detected = false; // keeps track of whether it's time to update the BPM
-    
-    // only read data if ECG chip has detected that leads are attached to patient
-    boolean leads_are_on = (digitalRead(LEADS_OFF_PLUS_PIN) == 0) && (digitalRead(LEADS_OFF_MINUS_PIN) == 0);
-    if(leads_are_on){     
-           
-      // read next ECG data point
-      int next_ecg_pt = analogRead(ECG_PIN);
-      
+  /* Read the current voltage level on the A0 analog input pin.
+     This is used here to simulate the heart rate's measurement.*/
+
       if (ble_connected && safeToFill){
-        ecg_q_count++;
-        if(ecg_q_count > 2){ // we only need to send every nth ECG value to the phone
-                           // a lower value in this loop means a higher resolution
-                           // for the graph on the phone
-        
-          int ecg = map(next_ecg_pt, 0, 1023, 0, 100); // scale each measurement to fit on the graph
-          ecg_queue.enqueue(ecg); // add each measurement to the queue
-          ecg_q_count = 0;
-        }
+          ecg_queue.enqueue(ECGcounter++); // add each measurement to the queue
+          ecg_queue.enqueue(ECGcounter++); // add each measurement to the queue
+          ecg_queue.enqueue(ECGcounter++); // add each measurement to the queue
+          ecg_queue.enqueue(ECGcounter++); // add each measurement to the queue
+          ecg_queue.enqueue(ECGcounter++); // add each measurement to the queue
+          ecg_queue.enqueue(ECGcounter++); // add each measurement to the queue
+          ecg_queue.enqueue(ECGcounter++); // add each measurement to the queue
+          ecg_queue.enqueue(ECGcounter++); // add each measurement to the queue
+          ecg_queue.enqueue(ECGcounter++); // add each measurement to the queue
+          ecg_queue.enqueue(ECGcounter++); // add each measurement to the queue
+          ecg_queue.enqueue(ECGcounter++); // add each measurement to the queue
+          ecg_queue.enqueue(ECGcounter++); // add each measurement to the queue
+          ecg_queue.enqueue(ECGcounter++); // add each measurement to the queue
+          ecg_queue.enqueue(ECGcounter++); // add each measurement to the queue       
       }
-      
-      // give next data point to algorithm
-      QRS_detected = detect(next_ecg_pt);
-            
-      if(QRS_detected == true){
-        
-        foundTimeMicros = micros();
 
-        // use the distance in time between when the last two peaks were detected to calculate BPM
-        
-        bpm_buff[bpm_buff_WR_idx] = (60.0 / (((float) (foundTimeMicros - old_foundTimeMicros)) / 1000000.0));
-        bpm_buff_WR_idx++;
-        bpm_buff_WR_idx %= BPM_BUFFER_SIZE;
-        bpm += bpm_buff[bpm_buff_RD_idx];
-    
-        tmp = bpm_buff_RD_idx - BPM_BUFFER_SIZE + 1;
-        if(tmp < 0) tmp += BPM_BUFFER_SIZE;
+      bpm_queue.enqueue(BPMcounter++);
 
-        // bpm_queue.enqueue(bpm/BPM_BUFFER_SIZE); // sends the current average BPM to the queue to be printed
-
-        bpm_queue.enqueue(BPMcounter++);
-    
-        bpm -= bpm_buff[tmp];
-        
-        bpm_buff_RD_idx++;
-        bpm_buff_RD_idx %= BPM_BUFFER_SIZE;
-
-        old_foundTimeMicros = foundTimeMicros;
-
+      if(BPMcounter > 254){
+        BPMcounter = 0;
       }
-    }
-}
 
-/* Portion pertaining to Pan-Tompkins QRS detection */
-
-// circular buffer for input ecg signal
-// we need to keep a history of M + 1 samples for HP filter
-float ecg_buff[M + 1] = {0};
-int ecg_buff_WR_idx = 0;
-int ecg_buff_RD_idx = 0;
-
-// circular buffer for input ecg signal
-// we need to keep a history of N+1 samples for LP filter
-float hp_buff[N + 1] = {0};
-int hp_buff_WR_idx = 0;
-int hp_buff_RD_idx = 0;
-
-// LP filter outputs a single point for every input point
-// This goes straight to adaptive filtering for eval
-float next_eval_pt = 0;
-
-// running sums for HP and LP filters, values shifted in FILO
-float hp_sum = 0;
-float lp_sum = 0;
-
-// working variables for adaptive thresholding
-float treshold = 0;
-boolean triggered = false;
-int trig_time = 0;
-float win_max = 0;
-int win_idx = 0;
-
-// number of starting iterations, used determine when moving windows are filled
-int number_iter = 0;
-
-boolean detect(float new_ecg_pt) {
-  
-  // copy new point into circular buffer, increment index
-  ecg_buff[ecg_buff_WR_idx++] = new_ecg_pt;  
-  ecg_buff_WR_idx %= (M+1);
-
- 
-  /* High pass filtering */
-  
-  if(number_iter < M){
-    // first fill buffer with enough points for HP filter
-    hp_sum += ecg_buff[ecg_buff_RD_idx];
-    hp_buff[hp_buff_WR_idx] = 0;
-    
-  } else {
-    hp_sum += ecg_buff[ecg_buff_RD_idx];
-    
-    tmp = ecg_buff_RD_idx - M;
-    if(tmp < 0) tmp += M + 1;
-    
-    hp_sum -= ecg_buff[tmp];
-    
-    float y1 = 0;
-    float y2 = 0;
-    
-    tmp = (ecg_buff_RD_idx - ((M+1)/2));
-    if(tmp < 0) tmp += M + 1;
-    
-    y2 = ecg_buff[tmp];
-    
-    y1 = HP_CONSTANT * hp_sum;
-    
-    hp_buff[hp_buff_WR_idx] = y2 - y1;
-  }
-  
-  // done reading ECG buffer, increment position
-  ecg_buff_RD_idx++;
-  ecg_buff_RD_idx %= (M+1);
-  
-  // done writing to HP buffer, increment position
-  hp_buff_WR_idx++;
-  hp_buff_WR_idx %= (N+1);
-  
-
-  /* Low pass filtering */
-  
-  // shift in new sample from high pass filter
-  lp_sum += hp_buff[hp_buff_RD_idx] * hp_buff[hp_buff_RD_idx];
-  
-  if(number_iter < N){
-    // first fill buffer with enough points for LP filter
-    next_eval_pt = 0;
-    
-  } else {
-    // shift out oldest data point
-    tmp = hp_buff_RD_idx - N;
-    if(tmp < 0) tmp += (N+1);
-    
-    lp_sum -= hp_buff[tmp] * hp_buff[tmp];
-    
-    next_eval_pt = lp_sum;
-  }
-  
-  // done reading HP buffer, increment position
-  hp_buff_RD_idx++;
-  hp_buff_RD_idx %= (N+1);
-  
-
-  /* Adapative thresholding beat detection */
-  // set initial threshold        
-  if(number_iter < winSize) {
-    if(next_eval_pt > treshold) {
-      treshold = next_eval_pt;
-    }
-    // only increment number_iter iff it is less than winSize
-    // if it is bigger, then the counter serves no further purpose
-    number_iter++;
-  }
-  
-  // check if detection hold off period has passed
-  if(triggered == true){
-    trig_time++;
-    
-    if(trig_time >= 100){
-      triggered = false;
-      trig_time = 0;
-    }
-  }
-  
-  // find if we have a new max
-  if(next_eval_pt > win_max) win_max = next_eval_pt;
-  
-  // find if we are above adaptive threshold
-  if(next_eval_pt > treshold && !triggered) {
-    triggered = true;
-
-    return true;
-  }
-  // else we'll finish the function before returning FALSE,
-  // to potentially change threshold
-          
-  // adjust adaptive threshold using max of signal found 
-  // in previous window            
-  if(win_idx++ >= winSize){
-    
-    // weighting factor for determining the contribution of
-    // the current peak value to the threshold adjustment
-    float gamma = 0.175;
-    
-    // forgetting factor - rate at which we forget old observations
-    // choose a random value between 0.01 and 0.1 for this, 
-    float alpha = 0.01 + ( ((float) random(0, RAND_RES) / (float) (RAND_RES)) * ((0.1 - 0.01)));
-    
-    // compute new threshold
-    treshold = alpha * gamma * win_max + (1 - alpha) * treshold;
-    
-    // reset current window index
-    win_idx = 0;
-    win_max = -10000000;
-  }
-      
-  // return false if we didn't detect a new QRS
-  return false;
-    
+      if(ECGcounter > 100){
+        ECGcounter = 0; 
+      }
 }
