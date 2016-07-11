@@ -28,6 +28,7 @@
 #include <SerialFlash.h>
 
 #define usb // COMMENT THIS OUT IF CONNECTED TO BATTERY INSTEAD OF COMPUTER
+// #define nate // COMMENT THIS OUT IF USING AN NRF APP INSTEAD OF NATE'S APP
 
 /* The portions of this code that implement the Pan-Tompkins QRS-detection algorithm were 
  *  modified from code taken from Blake Milner's real_time_QRS_detection GitHub repository:
@@ -51,13 +52,15 @@ QueueArray<int> ecg_queue; // holds the ECGs to be printed
 
 int ecg_q_count = 0; // used to space out the ECG measurements sent to
 
+boolean timeInitiated = false; // whether time has ever been set by phone
+
 boolean safeToFill = true; // used to prevent the ECG measurement queue
                            // from being added to too early after the 
                            // phone has recently reconnected
 
 // Memory management stuff ------------------------
 
-#define FSIZE 256
+#define FSIZE 128
 // #define FSIZE 524288 // size of a file in memory
 #define DSIZE 8   // size of each unit of data stored in memory (BPM + time stamp)
 
@@ -219,7 +222,7 @@ boolean create_if_not_exists (const char *filename) {
 void setUpBLE() {
   
     /* Set a local name for the BLE device */
-    blePeripheral.setLocalName("Neptune");
+    blePeripheral.setLocalName("Penelope");
     blePeripheral.setAdvertisedServiceUuid(myService.uuid());  // add the service UUID
     blePeripheral.addAttribute(myService);   // add the BLE service
     blePeripheral.addAttribute(timeChar); // add the time characteristic
@@ -313,24 +316,28 @@ void loop() { // called continuously
         // print the central's MAC address:
         Serial.println(central.address());
         #endif
-        
-//        while(!timeChar.written()){
-//          delay(1);
-//        }
-//                
-//        const unsigned char *fromPhone;
-//        fromPhone = timeChar.value();
-//        unsigned long ts0 = ((unsigned long) fromPhone[0]);
-//        unsigned long ts1 = ((unsigned long) fromPhone[1]) << 8;
-//        unsigned long ts2 = ((unsigned long) fromPhone[2]) << 16;
-//        unsigned long ts3 = ((unsigned long) fromPhone[3]) << 24;
-//        unsigned long initTime = ts0 | ts1 | ts2 | ts3;
-//
-//        setTime(initTime);
-//
-//        #ifdef usb
-//        Serial.println("time has been set");
-//        #endif
+
+        #ifdef nate
+        while(!timeChar.written()){
+          delay(1);
+        }
+                
+        const unsigned char *fromPhone;
+        fromPhone = timeChar.value();
+        unsigned long ts0 = ((unsigned long) fromPhone[0]);
+        unsigned long ts1 = ((unsigned long) fromPhone[1]) << 8;
+        unsigned long ts2 = ((unsigned long) fromPhone[2]) << 16;
+        unsigned long ts3 = ((unsigned long) fromPhone[3]) << 24;
+        unsigned long initTime = ts0 | ts1 | ts2 | ts3;
+
+        setTime(initTime);
+
+        #ifdef usb
+        Serial.println("time has been set");
+        #endif
+        #endif
+
+        timeInitiated = true;
         
         digitalWrite(LED_PIN, HIGH);
 
@@ -384,55 +391,79 @@ boolean retrieveFromMemory() { // retrieve BPMs and time stamps from the flash
 //  and start writing to the next file
 void switchWriteFiles() {
 
-  #ifdef usb
-  Serial.println("switching write files");
-  #endif
   
   // if we're currently on fileA, switch to fileB
   if(onWriteFileA){
+    #ifdef usb
+    Serial.println("switching WRITE file to B");
+    #endif
+    if(!onReadFileA){
+      resetReadFile();
+    }
     fileB.erase();
     nextToPlace = startOfB;
     currentWriteFile = fileB;
     onWriteFileA = false;
-    if(!onReadFileA){
-      switchReadFiles();
-    }
+
     
   // if we're currently on fileB, switch to fileA  
   } else {
+    #ifdef usb
+    Serial.println("switching WRITE file to A");
+    #endif
+    if(onReadFileA){
+      resetReadFile();
+    }
     fileA.erase();
     nextToPlace = startOfA;
     currentWriteFile = fileA;
     onWriteFileA = true;
-    if(onReadFileA){
-      switchReadFiles();
-    }
   }
-  
 }
-
 
 // when one file in memory gets full, we erase it
 //  and start writing to the next file
 void switchReadFiles() {
-
-  #ifdef usb
-  Serial.println("switching read files");
-  #endif
   
   // if we're currently on fileA, switch to fileB
   if(onReadFileA){
+    #ifdef usb
+    Serial.println("switching READ file to B");
+    #endif
     nextToRetrieve = startOfB;
     currentReadFile = fileB;
     onReadFileA = false;
     
   // if we're currently on fileB, switch to fileA  
   } else {
+    #ifdef usb
+    Serial.println("switching READ file to A");
+    #endif
     nextToRetrieve = startOfA;
     currentReadFile = fileA;
     onReadFileA = true;
   }
-  
+}
+
+void resetReadFile(){
+  // if we're currently on fileA, go to the top of it
+  if(!onReadFileA){
+    #ifdef usb
+    Serial.println("resetting read file on B");
+    #endif
+    nextToRetrieve = startOfB;
+    currentReadFile = fileB;
+    onReadFileA = false;
+    
+  // if we're currently on fileA, go to the top of it 
+  } else {
+    #ifdef usb
+    Serial.println("resetting read file on A");
+    #endif
+    nextToRetrieve = startOfA;
+    currentReadFile = fileA;
+    onReadFileA = true;
+  }
 }
 
 void updateHeartRate(){ // interrupt handler
@@ -475,9 +506,10 @@ void updateHeartRate(){ // interrupt handler
         tmp = bpm_buff_RD_idx - BPM_BUFFER_SIZE + 1;
         if(tmp < 0) tmp += BPM_BUFFER_SIZE;
 
-        // bpm_queue.enqueue(bpm/BPM_BUFFER_SIZE); // sends the current average BPM to the queue to be printed
-
-        bpm_queue.enqueue(BPMcounter++);
+        if (timeInitiated){
+          // bpm_queue.enqueue(bpm/BPM_BUFFER_SIZE); // sends the current average BPM to the queue to be printe
+          bpm_queue.enqueue(BPMcounter++); 
+        }
     
         bpm -= bpm_buff[tmp];
         
