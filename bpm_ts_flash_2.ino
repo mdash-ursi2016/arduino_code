@@ -64,13 +64,16 @@ boolean safeToFill = true; // used to prevent the ECG measurement queue
 // #define FSIZE 524288 // size of a file in memory
 #define DSIZE 8   // size of each unit of data stored in memory (BPM + time stamp)
 
+#define NUM_BUFFS 3
+
 const char *filenameA = "fileA.txt"; 
 const char *filenameB = "fileB.txt";
+const char *filenameC = "fileC.txt";
 
-SerialFlashFile fileA, fileB, currentWriteFile, currentReadFile;
+SerialFlashFile fileA, fileB, fileC;
+SerialFlashFile flashFiles[NUM_BUFFS];
 
-boolean onWriteFileA;         // keeps track of which file we're on
-boolean onReadFileA;         // keeps track of which file we're on
+short readFileIndex, writeFileIndex;
 
 unsigned long nextToPlace;    // next location on the chip to write BPMs
 unsigned long nextToRetrieve; // next location on the chip to read BPMs
@@ -189,15 +192,17 @@ void setUpFlash() { // sets up the flash chip for memory management
 
   fileA = SerialFlash.open(filenameA); // open both files and assign
   fileB = SerialFlash.open(filenameB); // them to global variables
+  fileC = SerialFlash.open(filenameC); 
 
-  onWriteFileA = true; // we need to keep track of which file we're
-  onReadFileA = true; // we need to keep track of which file we're
+  flashFiles[0] = fileA;
+  flashFiles[1] = fileB;
+  flashFiles[2] = fileC;
+  
+  writeFileIndex = 0; // we need to keep track of which files we're currently
+  readFileIndex = 0; // reading and writing on
 
-  currentWriteFile = fileA; // currently writing to 
-  currentReadFile = fileA;
-
-  nextToPlace = 0; // begin at the beginning of 
-  nextToRetrieve = 0; // the first file 
+  nextToPlace = flashFiles[writeFileIndex].position(); // begin at the beginning of 
+  nextToRetrieve = flashFiles[readFileIndex].position(); // the first file 
   
 }
 
@@ -345,41 +350,29 @@ void loop() { // called continuously
 }
 
 void placeInMemory() { // store BPMs and timestamps on the flash chip
-  
-  currentWriteFile.seek(nextToPlace);
-  currentWriteFile.write(toMemBuff, DSIZE);
+
+  flashFiles[writeFileIndex].seek(nextToPlace);
+  flashFiles[writeFileIndex].write(toMemBuff, DSIZE);
   nextToPlace += DSIZE;
 
   // check if it's time to switch files
-  if(onWriteFileA){
-    if(nextToPlace + DSIZE >= FSIZE){
-      switchWriteFiles();
-    }
-  } else {
-    if(nextToPlace + DSIZE >= FSIZE){
-      switchWriteFiles();
-    }
+  if(nextToPlace >= FSIZE){
+    switchWriteFiles();
   }
 }
 
 boolean retrieveFromMemory() { // retrieve BPMs and time stamps from the flash
                                //   chip to send them to the phone
-  if(currentReadFile == currentWriteFile && nextToRetrieve == nextToPlace){
+  if((readFileIndex == writeFileIndex) && (nextToRetrieve >= nextToPlace)){
     return false; // if we're caught up, don't try to read any data
   }
-  currentReadFile.seek(nextToRetrieve);
-  currentReadFile.read(fromMemBuff, DSIZE);
+  flashFiles[readFileIndex].seek(nextToRetrieve);
+  flashFiles[readFileIndex].read(fromMemBuff, DSIZE);
   nextToRetrieve += DSIZE;
 
-    // check if it's time to switch files
-  if(onReadFileA){
-    if(nextToRetrieve + DSIZE >= FSIZE){
-      switchReadFiles();
-    }
-  } else {
-    if(nextToRetrieve + DSIZE >= FSIZE){
-      switchReadFiles();
-    }
+  // check if it's time to switch files
+  if(nextToRetrieve >= FSIZE){
+    switchReadFiles();
   }
   return true;
 }
@@ -388,75 +381,40 @@ boolean retrieveFromMemory() { // retrieve BPMs and time stamps from the flash
 //  and start writing to the next file
 void switchWriteFiles() {
 
-  
-  // if we're currently on fileA, switch to fileB
-  if(onWriteFileA){
-    #ifdef usb
-    Serial.println("switching WRITE file to B");
-    #endif
-    if(!onReadFileA){
-      switchReadFiles();
-    }
-    fileB.erase();
-    nextToPlace = 0;
-    currentWriteFile = fileB;
-    onWriteFileA = false;
+  writeFileIndex = (writeFileIndex + 1) % NUM_BUFFS;
+  flashFiles[writeFileIndex].erase();
+  nextToPlace = 0;
 
-    
-  // if we're currently on fileB, switch to fileA  
-  } else {
-    #ifdef usb
-    Serial.println("switching WRITE file to A");
-    #endif
-    if(onReadFileA){
-      switchReadFiles();
-    }
-    fileA.erase();
-    nextToPlace = 0;
-    currentWriteFile = fileA;
-    onWriteFileA = true;
+  #ifdef usb
+  Serial.print("Switching WRITE file to ");
+  Serial.println(writeFileIndex);
+  #endif
+
+  if(writeFileIndex == readFileIndex){
+    switchReadFiles();
   }
 }
 
 // when one file in memory gets full, we erase it
 //  and start writing to the next file
 void switchReadFiles() {
-  
-  // if we're currently on fileA, switch to fileB
-  if(onReadFileA){
-    #ifdef usb
-    Serial.println("switching READ file to B");
-    #endif
-    nextToRetrieve = 0;
-    currentReadFile = fileB;
-    onReadFileA = false;
-    
-  // if we're currently on fileB, switch to fileA  
-  } else {
-    #ifdef usb
-    Serial.println("switching READ file to A");
-    #endif
-    nextToRetrieve = 0;
-    currentReadFile = fileA;
-    onReadFileA = true;
-  }
+
+  readFileIndex = (readFileIndex + 1) % NUM_BUFFS;
+  nextToRetrieve = 0;
+
+  #ifdef usb
+  Serial.print("Switching READ file to ");
+  Serial.println(readFileIndex);
+  #endif
 }
 
 void resetReadFile(){
-  // if we're currently on fileA, go to the top of it
-  if(!onReadFileA){
-    #ifdef usb
-    Serial.println("resetting read file on B");
-    #endif
-    nextToRetrieve = 0;
-    
-  // if we're currently on fileA, go to the top of it 
-  } else {
-    #ifdef usb
-    Serial.println("resetting read file on A");
-    #endif
-    nextToRetrieve = 0;
-  }
+  // go to the top of the file we're on
+  nextToRetrieve = 0;
+  #ifdef usb
+  Serial.print("Read file reset to top of file ");
+  Serial.print(readFileIndex);
+  #endif
 }
 
 void updateHeartRate(){ // interrupt handler
