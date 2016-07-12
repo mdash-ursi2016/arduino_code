@@ -62,7 +62,7 @@ boolean safeToFill = true; // used to prevent the ECG measurement queue
 
 #define FSIZE 128
 // #define FSIZE 524288 // size of a file in memory
-#define DSIZE 8   // size of each unit of data stored in memory (BPM + time stamp)
+#define DSIZE 8 // size of each unit of data stored in memory (BPM + time stamp)
 
 #define NUM_BUFFS 3
 
@@ -175,8 +175,8 @@ void setUpFlash() { // sets up the flash chip for memory management
   Serial.println("Erasing flash chip...");
   #endif
   
-  SerialFlash.eraseAll();
-  while(!SerialFlash.ready());
+  SerialFlash.eraseAll(); // erase the flash chip to start with a clean slate
+  while(!SerialFlash.ready()); // don't do anything till the flash chip is erased
 
   #ifdef usb
   Serial.println("Flash chip erased");
@@ -194,7 +194,7 @@ void setUpFlash() { // sets up the flash chip for memory management
   fileB = SerialFlash.open(filenameB); // them to global variables
   fileC = SerialFlash.open(filenameC); 
 
-  flashFiles[0] = fileA;
+  flashFiles[0] = fileA; // put all the files in an array
   flashFiles[1] = fileB;
   flashFiles[2] = fileC;
   
@@ -226,10 +226,10 @@ void setUpBLE() {
     /* Set a local name for the BLE device */
     blePeripheral.setLocalName("Penelope");
     blePeripheral.setAdvertisedServiceUuid(myService.uuid());  // add the service UUID
-    blePeripheral.addAttribute(myService);   // add the BLE service
+    blePeripheral.addAttribute(myService);// add the BLE service
     blePeripheral.addAttribute(timeChar); // add the time characteristic
-    blePeripheral.addAttribute(bpmChar); // add the BPM characteristic
-    blePeripheral.addAttribute(ecgChar); // add the ECG characteristic
+    blePeripheral.addAttribute(bpmChar);  // add the BPM characteristic
+    blePeripheral.addAttribute(ecgChar);  // add the ECG characteristic
   
       /* Now activate the BLE device.  It will start continuously transmitting BLE
        advertising packets and will be visible to remote BLE central devices
@@ -248,7 +248,7 @@ void loop() { // called continuously
 
     // remove a BPM from the queue and send it to memory
     unsigned long heartRate = (unsigned long) bpm_queue.dequeue();
-    unsigned long timeStamp = now();
+    unsigned long timeStamp = now(); // get the current epoch time in seconds
     
     toMemBuff[0] = heartRate; // put the BPM and time stamp into the buffer
     toMemBuff[1] = timeStamp; //   before placing the buffer's contents in memory
@@ -320,40 +320,49 @@ void loop() { // called continuously
         #endif
 
         #ifdef nate
+        // don't do anything until the phone gives you the current
+        // time in epoch time
         while(!timeChar.written()){
           delay(1);
         }
-                
+
+        // get the time from the phone as a byte array and 
+        // combine each byte into one 4-byte number
         const unsigned char *fromPhone;
-        fromPhone = timeChar.value();
+        fromPhone = timeChar.value(); 
         unsigned long ts0 = ((unsigned long) fromPhone[0]);
         unsigned long ts1 = ((unsigned long) fromPhone[1]) << 8;
         unsigned long ts2 = ((unsigned long) fromPhone[2]) << 16;
         unsigned long ts3 = ((unsigned long) fromPhone[3]) << 24;
         unsigned long initTime = ts0 | ts1 | ts2 | ts3;
 
-        setTime(initTime);
+        setTime(initTime); // set the time using the CurieTime library
 
         #ifdef usb
         Serial.println("time has been set");
         #endif
         #endif
 
+        // until this has been set to true for the first time, no BPMs
+        // can be recorded because they're time stamps would be in 1970S
         timeInitiated = true;
         
-        digitalWrite(LED_PIN, HIGH);
+        digitalWrite(LED_PIN, HIGH); // turn on the connection light
 
+        // wait a bit before sending data to the phone because otherwise
+        // the initial batch of bluetooth packets you send will get dropped
+        // on the floor
         delay(1000);
-        ble_connected = true; // recently moved from top to bottom
+        ble_connected = true; 
       }
   }
 }
 
 void placeInMemory() { // store BPMs and timestamps on the flash chip
 
-  flashFiles[writeFileIndex].seek(nextToPlace);
-  flashFiles[writeFileIndex].write(toMemBuff, DSIZE);
-  nextToPlace += DSIZE;
+  flashFiles[writeFileIndex].seek(nextToPlace); // move cursor
+  flashFiles[writeFileIndex].write(toMemBuff, DSIZE); // write to chip
+  nextToPlace += DSIZE; // increment the offset to be written to next
 
   // check if it's time to switch files
   if(nextToPlace >= FSIZE){
@@ -364,11 +373,12 @@ void placeInMemory() { // store BPMs and timestamps on the flash chip
 boolean retrieveFromMemory() { // retrieve BPMs and time stamps from the flash
                                //   chip to send them to the phone
   if((readFileIndex == writeFileIndex) && (nextToRetrieve >= nextToPlace)){
-    return false; // if we're caught up, don't try to read any data
+    return false; // if the read pointer has caught up to the write pointer,
+                  // don't try to read any new data yet
   }
-  flashFiles[readFileIndex].seek(nextToRetrieve);
-  flashFiles[readFileIndex].read(fromMemBuff, DSIZE);
-  nextToRetrieve += DSIZE;
+  flashFiles[readFileIndex].seek(nextToRetrieve); // move cursor
+  flashFiles[readFileIndex].read(fromMemBuff, DSIZE); // read from chip
+  nextToRetrieve += DSIZE; // increment the offset to be read from next
 
   // check if it's time to switch files
   if(nextToRetrieve >= FSIZE){
@@ -377,12 +387,15 @@ boolean retrieveFromMemory() { // retrieve BPMs and time stamps from the flash
   return true;
 }
 
-// when one file in memory gets full, we erase it
-//  and start writing to the next file
+// when one file in memory gets full, we erase the
+//  next file and start writing to it
 void switchWriteFiles() {
 
+  // change the current file we're writing to
   writeFileIndex = (writeFileIndex + 1) % NUM_BUFFS;
+  // erase it so we can write to it
   flashFiles[writeFileIndex].erase();
+  // start writing to the beginning of this file
   nextToPlace = 0;
 
   #ifdef usb
@@ -390,30 +403,26 @@ void switchWriteFiles() {
   Serial.println(writeFileIndex);
   #endif
 
+  // if the file that's just been erased was the file
+  // that the read pointer is currently on, evict the
+  // read pointer to the next file
   if(writeFileIndex == readFileIndex){
     switchReadFiles();
   }
 }
 
-// when one file in memory gets full, we erase it
-//  and start writing to the next file
+// when we've read everthing in one file, we 
+//  start reading from the next one
 void switchReadFiles() {
 
+  // change the current file we're reading from
   readFileIndex = (readFileIndex + 1) % NUM_BUFFS;
+  // start reading from the beginning of the this file
   nextToRetrieve = 0;
 
   #ifdef usb
   Serial.print("Switching READ file to ");
   Serial.println(readFileIndex);
-  #endif
-}
-
-void resetReadFile(){
-  // go to the top of the file we're on
-  nextToRetrieve = 0;
-  #ifdef usb
-  Serial.print("Read file reset to top of file ");
-  Serial.print(readFileIndex);
   #endif
 }
 
@@ -458,7 +467,7 @@ void updateHeartRate(){ // interrupt handler
         if(tmp < 0) tmp += BPM_BUFFER_SIZE;
 
         if (timeInitiated){
-          // bpm_queue.enqueue(bpm/BPM_BUFFER_SIZE); // sends the current average BPM to the queue to be printe
+          // bpm_queue.enqueue(bpm/BPM_BUFFER_SIZE); // sends the current average BPM to the queue to be printed
           bpm_queue.enqueue(BPMcounter++); 
         }
     
