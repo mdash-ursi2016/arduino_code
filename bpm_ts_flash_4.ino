@@ -100,7 +100,7 @@ BLECharacteristic timeChar("95d344f4-c6ad-48d8-8877-661ab4d41e5b",
 
 // Custom BLE characteristic to hold BPM
 BLECharacteristic bpmChar("b0351694-25e6-4eb5-918c-ca9403ddac47",  
-    BLERead | BLENotify, 8);  
+    BLERead | BLENotify, 5);  
 
 // Custom BLE characteristic to batches of BPMs
 BLECharacteristic batchChar("3cd43730-fc61-4ea7-aa18-6e7c3d798d74",  
@@ -355,8 +355,8 @@ void liveSend() {
     #endif
     
     // package the the BPM and time stamp, switching to big-endian
-    unsigned char bpmCharArray[8] = { (unsigned char) fromMemBuff[0], 0, 0, 0, ts0, ts1, ts2, ts3 };
-    bpmChar.setValue(bpmCharArray, 8); // send them to the phone
+    unsigned char bpmCharArray[5] = { ts0, ts1, ts2, ts3, (unsigned char) fromMemBuff[0] };
+    bpmChar.setValue(bpmCharArray, 5); // send them to the phone
   } 
 }
 
@@ -374,13 +374,16 @@ void batchSend() {
 
       short offset = i * PCKG_SIZE;
       
-      batchCharArray[offset] = (unsigned char) fromMemBuff[0];
-      batchCharArray[offset+1] = ts0;
-      batchCharArray[offset+2] = ts1;
-      batchCharArray[offset+3] = ts2;
-      batchCharArray[offset+4] = ts3;
+      batchCharArray[offset] = ts0;
+      batchCharArray[offset+1] = ts1;
+      batchCharArray[offset+2] = ts2;
+      batchCharArray[offset+3] = ts3;
+      batchCharArray[offset+4] = (unsigned char) fromMemBuff[0];
+
     } else {
+      #ifdef usb
       Serial.println("ummmm");
+      #endif
     }
   }
 
