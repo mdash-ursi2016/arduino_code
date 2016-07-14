@@ -66,6 +66,10 @@ boolean safeToFill = true; // used to prevent the ECG measurement queue
 
 #define DSIZE 8 // size of each unit of data stored in memory (BPM + time stamp)
 
+#define DATA_PER_FILE (FSIZE / DSIZE) // how many data can be stored per file
+
+#define STORAGE_LENGTH (DATA_PER_FILE * NUM_BUFFS) // how many data can be stored total
+
 SerialFlashFile flashFiles[NUM_BUFFS];
 
 short readFileIndex, writeFileIndex;
@@ -78,8 +82,6 @@ unsigned long toMemBuff[2];   // holds a BPM and time stamp on its way to the ch
 unsigned long fromMemBuff[2]; // holds a BPM and time stamp on its way back
                               // the chip to be sent to the phone
 
-boolean caughtUp = false; // keeps track of whether we're live updating BPMs
-
 const int FlashChipSelect = 21; // digital pin for flash chip CS pin
 
 // ------------------------------------------------
@@ -87,7 +89,10 @@ const int FlashChipSelect = 21; // digital pin for flash chip CS pin
 
 // Bluetooth stuff --------------------------------
 
-#define PCKG_SIZE 5
+#define BYTES_PER_PCKG 5
+#define NUM_PCKGS 4
+#define BATCH_SIZE (NUM_PCKGS * BYTES_PER_PCKG)
+#define NUM_ECGS 14
 
 boolean ble_connected = false;  // keeps track of whether the Bluetooth is connected
 
@@ -100,15 +105,15 @@ BLECharacteristic timeChar("95d344f4-c6ad-48d8-8877-661ab4d41e5b",
 
 // Custom BLE characteristic to hold BPM
 BLECharacteristic bpmChar("b0351694-25e6-4eb5-918c-ca9403ddac47",  
-    BLERead | BLENotify, 5);  
+    BLERead | BLENotify, BYTES_PER_PCKG);  
 
 // Custom BLE characteristic to batches of BPMs
 BLECharacteristic batchChar("3cd43730-fc61-4ea7-aa18-6e7c3d798d74",  
-    BLERead | BLENotify, 25); 
+    BLERead | BLENotify, BATCH_SIZE); 
 
 // Custom BLE characteristic to hold chunks of raw ECG measurements
 BLECharacteristic ecgChar("1bf9168b-cae4-4143-a228-dc7850a37d98", 
-    BLERead | BLENotify, 14); 
+    BLERead | BLENotify, NUM_ECGS); 
 
 BLECentral central = blePeripheral.central(); // the Blutooth central device (the phone)
     
@@ -250,7 +255,7 @@ void setUpBLE() {
 
 void loop() { // called continuously
 
-  if(!bpm_queue.isEmpty()){ // check if there's the BPM to print
+  if(!bpm_queue.isEmpty()) { // check if there's the BPM to print
 
     // remove a BPM from the queue and send it to memory
     unsigned long heartRate = (unsigned long) bpm_queue.dequeue();
@@ -262,11 +267,11 @@ void loop() { // called continuously
      
   }
 
-  if(ble_connected){ 
+  if(ble_connected) { 
     
-    if(central.connected()){ // check if we're still connected to the phone
+    if(central.connected()) { // check if we're still connected to the phone
 
-      if (caughtUp){
+      if (caughtUp()){
         liveSend();
         
       } else {   
@@ -279,7 +284,6 @@ void loop() { // called continuously
              //   to it and turn off the LED
       safeToFill = false;
       ble_connected = false;
-      caughtUp = false;
       #ifdef usb
       Serial.print("Disconnected from central: ");
       Serial.println(central.address());
@@ -341,7 +345,7 @@ void obtainInitTime() {
 }
 
 void liveSend() {
-  if (retrieveFromMemory()){ // only update the characteristic if new data was read
+  if (retrieveFromMemory()) { // only update the characteristic if new data was read
     unsigned long timeStamp = fromMemBuff[1]; // get the time stamp
     unsigned char ts0 = timeStamp & 0xff;      // get each byte from the time stamp separately
     unsigned char ts1 = (timeStamp >> 8) & 0xff;  // so that the time stamp can be sent in a
@@ -355,24 +359,31 @@ void liveSend() {
     #endif
     
     // package the the BPM and time stamp, switching to big-endian
-    unsigned char bpmCharArray[5] = { ts0, ts1, ts2, ts3, (unsigned char) fromMemBuff[0] };
-    bpmChar.setValue(bpmCharArray, 5); // send them to the phone
+    unsigned char bpmCharArray[BYTES_PER_PCKG] = { ts0, ts1, ts2, ts3, (unsigned char) fromMemBuff[0] };
+    bpmChar.setValue(bpmCharArray, BYTES_PER_PCKG); // send them to the phone
   } 
 }
 
 void batchSend() {
-  unsigned char batchCharArray[25];
+  unsigned char batchCharArray[BATCH_SIZE];
   
   short i;
-  for (i = 0; i < PCKG_SIZE; i++){
-    if(retrieveFromMemory()){
+  for (i = 0; i < NUM_PCKGS; i++) {
+    if (retrieveFromMemory()) {
       unsigned long timeStamp = fromMemBuff[1]; // get the time stamp
       unsigned char ts0 = timeStamp & 0xff;      // get each byte from the time stamp separately
       unsigned char ts1 = (timeStamp >> 8) & 0xff;  // so that the time stamp can be sent in a
       unsigned char ts2 = (timeStamp >> 16) & 0xff;    // bluetooth compatible format
       unsigned char ts3 = (timeStamp >> 24) & 0xff;
 
-      short offset = i * PCKG_SIZE;
+      short offset = i * BYTES_PER_PCKG;
+
+      #ifdef usb
+      Serial.print(fromMemBuff[0]);
+      Serial.print(", ");
+      Serial.print(timeStamp);
+      Serial.print('\t');
+      #endif
       
       batchCharArray[offset] = ts0;
       batchCharArray[offset+1] = ts1;
@@ -382,28 +393,29 @@ void batchSend() {
 
     } else {
       #ifdef usb
-      Serial.println("ummmm");
+      Serial.println("you have made an error");
       #endif
     }
   }
 
-  batchChar.setValue(batchCharArray, 25);
+  batchChar.setValue(batchCharArray, BATCH_SIZE);
+  Serial.println();
 }
 
 void sendECG() {
-  if(ecg_queue.count() >= 14){ // check if there are at least 14 ECG measurements to print
+  if (ecg_queue.count() >= NUM_ECGS) { // check if there are at least 14 ECG measurements to print
       
      // remove 14 ECG measurements from the queue and package them
-     unsigned char ecgCharArray[14];
+     unsigned char ecgCharArray[NUM_ECGS];
      int i;
-     for (i = 0; i < 14; i++){
+     for (i = 0; i < NUM_ECGS; i++){
        ecgCharArray[i] = ecg_queue.dequeue();
      }
      
      safeToFill = true; // allow ECG measurements to be added to the queue if
                          // they weren't allowed already    
 
-     ecgChar.setValue(ecgCharArray, 14); // send the array of 14 ECG measurements to
+     ecgChar.setValue(ecgCharArray, NUM_ECGS); // send the array of 14 ECG measurements to
                                           // the phone to be graphed
       
      } else {    
@@ -426,14 +438,10 @@ void placeInMemory() { // store BPMs and timestamps on the flash chip
 
 boolean retrieveFromMemory() { // retrieve BPMs and time stamps from the flash
                                //   chip to send them to the phone
-  if(readFileIndex == writeFileIndex){
-    if (nextToRetrieve >= nextToPlace - (PCKG_SIZE * DSIZE)){
-      caughtUp = true;
-    }
-    if (nextToRetrieve >= nextToPlace) {
-      return false; // if the read pointer has caught up to the write pointer,
-                     // don't try to read any new data yet
-    }
+                               
+  if((readFileIndex == writeFileIndex) && (nextToRetrieve >= nextToPlace)){
+    return false; // if the read pointer has caught up to the write pointer,
+                  // don't try to read any new data yet
   }
   flashFiles[readFileIndex].seek(nextToRetrieve); // move cursor
   flashFiles[readFileIndex].read(fromMemBuff, DSIZE); // read from chip
@@ -485,7 +493,18 @@ void switchReadFiles() {
   #endif
 }
 
-void updateHeartRate(){ // interrupt handler
+boolean caughtUp() {
+  
+  int logicalWriteIndex = (writeFileIndex * DATA_PER_FILE) + (nextToPlace / DSIZE);
+  int logicalReadIndex = (readFileIndex * DATA_PER_FILE) + (nextToRetrieve / DSIZE);
+
+  int distance = (logicalWriteIndex - logicalReadIndex) % STORAGE_LENGTH;
+
+  return (distance < NUM_PCKGS);
+  
+}
+
+void updateHeartRate() { // interrupt handler
  
     boolean QRS_detected = false; // keeps track of whether it's time to update the BPM
     
