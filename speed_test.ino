@@ -1,4 +1,4 @@
-// This program sends the numbers 1 through 250 to a phone
+// This program sends the numbers 0 through 250 to a phone
 // as fast as possible. It repeats this action every time
 // it reconnects to the phone after a disconnect.
 
@@ -60,7 +60,7 @@ void loop(){
     
     if(central.connected()){ // check if we're still connected to the phone
 
-      if (counter <= 250){ // send the numbers 1-250 to the phone
+      if (counter <= 250){ // send the numbers 0-250 to the phone
         
         unsigned char bpmCharArray[1] = {(unsigned char) counter };
         bpmChar.setValue(bpmCharArray, 1); // send to phone
