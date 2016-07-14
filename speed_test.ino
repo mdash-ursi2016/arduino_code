@@ -1,5 +1,7 @@
-#include <stdio.h>
-#include <stdlib.h>
+// This program sends the numbers 1 through 250 to a phone
+// as fast as possible. It repeats this action every time
+// it reconnects to the phone after a disconnect.
+
 #include <BLEPeripheral.h>
 #include <BLEDescriptor.h>
 #include <BLEUuid.h>
@@ -12,19 +14,18 @@
 #include <BLECharacteristic.h>
 #include <BLETypedCharacteristic.h>
 
-BLEPeripheral blePeripheral; 
+BLEPeripheral blePeripheral; // the Bluetooth peripheral device (the Arduino)
 
-BLEService myService("aa7b3c40-f6ed-4ffc-bc29-5750c59e74b3"); 
+BLEService myService("aa7b3c40-f6ed-4ffc-bc29-5750c59e74b3"); // custom service
 
-BLECharacteristic bpmChar("b0351694-25e6-4eb5-918c-ca9403ddac47",  
-    BLERead | BLENotify, 5);  
+BLECharacteristic bpmChar("b0351694-25e6-4eb5-918c-ca9403ddac47", // custom characteristic
+    BLERead | BLENotify, 1);  
 
 BLECentral central = blePeripheral.central(); // the Blutooth central device (the phone)
 
-boolean ble_connected = false;
+boolean ble_connected = false; // keeps track of whether Bluetooth is connected
 
-int counter;
-unsigned long timeStamp; 
+int counter; // the data we're sending
 
 void setup() { // called when the program starts
 
@@ -33,9 +34,7 @@ void setup() { // called when the program starts
 
   setUpBLE(); // sets up the bluetooth services and characteristics 
 
-  counter = 0; 
-  timeStamp = 12345;
-  
+  counter = 0; // reset data to 0
 }
 
 void setUpBLE() {
@@ -61,22 +60,15 @@ void loop(){
     
     if(central.connected()){ // check if we're still connected to the phone
 
-      unsigned char ts0 = timeStamp & 0xff;      // get each byte from the time stamp separately
-      unsigned char ts1 = (timeStamp >> 8) & 0xff;  // so that the time stamp can be sent in a
-      unsigned char ts2 = (timeStamp >> 16) & 0xff;    // bluetooth compatible format
-      unsigned char ts3 = (timeStamp >> 24) & 0xff;
-      
-      unsigned char bpmCharArray[5] = { ts0, ts1, ts2, ts3, (unsigned char) counter };
-      bpmChar.setValue(bpmCharArray, 5); // send them to the phone
+      if (counter <= 250){ // send the numbers 1-250 to the phone
+        
+        unsigned char bpmCharArray[1] = {(unsigned char) counter };
+        bpmChar.setValue(bpmCharArray, 1); // send to phone
 
-      if (counter < 300){
-        Serial.print(counter);
-        Serial.print(", ");
-        Serial.println(timeStamp);
+        Serial.println(counter);
+       
+        counter++; // increment data variable
       }
-  
-      counter++;
-      timeStamp += 10;
       
     } else { // if we disconnect from the phone, we stop trying to send things
              
@@ -95,10 +87,10 @@ void loop(){
         // print the central's MAC address:
         Serial.println(central.address());
 
-        delay(1000);
+        delay(1000); // wait a bit before sending packets so they 
+                     //   don't get dropped on the floor
         ble_connected = true; 
-        counter = 0;
-        timeStamp = 12345;
+        counter = 0; // reset data variable
       }
   } 
 }
