@@ -531,8 +531,6 @@ void updateHeartRate() { // interrupt handler
           ecg_queue.enqueue(ecg); // add each measurement to the queue
           ecg_q_count = 0;
         }
-      } else {
-        safeToFill = false;
       }
       
       // give next data point to algorithm
