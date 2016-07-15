@@ -246,6 +246,9 @@ void setUpBLE() {
        advertising packets and will be visible to remote BLE central devices
        until it receives a new connection */
     blePeripheral.begin();
+
+    blePeripheral.setEventHandler(BLEConnected, blePeripheralConnectHandler);
+    blePeripheral.setEventHandler(BLEDisconnected, blePeripheralDisconnectHandler);
   
     #ifdef usb
     Serial.println("Bluetooth device active, waiting for connections...");
@@ -253,7 +256,49 @@ void setUpBLE() {
   
 }
 
+void blePeripheralConnectHandler(BLECentral& central) {
+  
+  #ifdef usb
+  Serial.print("Connected event, central: ");
+  Serial.println(central.address());
+  #endif
+
+  #ifdef nate
+  obtainInitTime();
+  #endif
+
+  // until this has been set to true for the first time, no BPMs
+  // can be recorded because they're time stamps would be in 1970S
+  timeInitiated = true;
+  
+  digitalWrite(LED_PIN, HIGH); // turn on the connection light
+
+  // wait a bit before sending data to the phone because otherwise
+  // the initial batch of bluetooth packets you send will get dropped
+  // on the floor
+  delay(1000);
+
+  ble_connected = true;
+}
+
+void blePeripheralDisconnectHandler(BLECentral& central) {
+
+  safeToFill = false;
+  ble_connected = false;
+  
+  #ifdef usb
+  Serial.print("Disconnected event, central: ");
+  Serial.println(central.address());
+  #endif
+      
+  digitalWrite(LED_PIN, LOW);
+}
+
 void loop() { // called continuously
+
+  blePeripheral.poll();
+
+  sendECG();
 
   if(!bpm_queue.isEmpty()) { // check if there's the BPM to print
 
@@ -267,57 +312,15 @@ void loop() { // called continuously
      
   }
 
-  sendECG();
-
   if(ble_connected) { 
     
-    if(blePeripheral.connected()) { // check if we're still connected to the phone
-
-      if (caughtUp()){
-        liveSend();
-        
-      } else {   
-        batchSend(); 
-      }
+    if (caughtUp()){
+      liveSend();
       
-    } else { // if we disconnect from the phone, we stop trying to send things
-             //   to it and turn off the LED
-      safeToFill = false;
-      ble_connected = false;
-      #ifdef usb
-      Serial.print("Disconnected from central: ");
-      Serial.println(central.address());
-      #endif
-      digitalWrite(LED_PIN, LOW);
+    } else {   
+      batchSend(); 
     }
-    
-  } else { // If we haven't connected to the phone yet, we attempt to do so
-      central = blePeripheral.central();
-      
-      if(central){ // when we've successfully connected to the phone
-        #ifdef usb
-        Serial.print("Connected to central: ");
-        // print the central's MAC address:
-        Serial.println(central.address());
-        #endif
-
-        #ifdef nate
-        obtainInitTime();
-        #endif
-
-        // until this has been set to true for the first time, no BPMs
-        // can be recorded because they're time stamps would be in 1970S
-        timeInitiated = true;
-        
-        digitalWrite(LED_PIN, HIGH); // turn on the connection light
-
-        // wait a bit before sending data to the phone because otherwise
-        // the initial batch of bluetooth packets you send will get dropped
-        // on the floor
-        delay(1000);
-        ble_connected = true; 
-      }
-  }
+  } 
 }
 
 void obtainInitTime() {
@@ -528,6 +531,8 @@ void updateHeartRate() { // interrupt handler
           ecg_queue.enqueue(ecg); // add each measurement to the queue
           ecg_q_count = 0;
         }
+      } else {
+        safeToFill = false;
       }
       
       // give next data point to algorithm
