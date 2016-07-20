@@ -19,7 +19,7 @@
 #include <SerialFlash.h>
 
 #define usb  // COMMENT THIS OUT IF CONNECTED TO BATTERY INSTEAD OF COMPUTER
-// #define nate // COMMENT THIS OUT IF USING AN NRF APP INSTEAD OF NATE'S APP
+#define nate // COMMENT THIS OUT IF USING AN NRF APP INSTEAD OF NATE'S APP
 
 /* The portions of this code that implement the Pan-Tompkins QRS-detection algorithm were 
  *  modified from code taken from Blake Milner's real_time_QRS_detection GitHub repository:
@@ -139,10 +139,6 @@ boolean ble_connected = false;  // keeps track of whether the Bluetooth is conne
 BLEPeripheral blePeripheral; // BLE Peripheral Device (the board you're programming)
 BLEService myService("aa7b3c40-f6ed-4ffc-bc29-5750c59e74b3"); // BLE Heart Rate Service
 
-//// Custom BLE characteristic to hold the initial time
-BLECharacteristic timeChar("95d344f4-c6ad-48d8-8877-661ab4d41e5b",  
-    BLERead | BLEWrite, 8);  
-
 // Custom BLE characteristic to hold BPM
 BLECharacteristic bpmChar("b0351694-25e6-4eb5-918c-ca9403ddac47",  
     BLERead | BLENotify, BYTES_PER_PCKG);  
@@ -157,7 +153,7 @@ BLECharacteristic ecgChar("1bf9168b-cae4-4143-a228-dc7850a37d98",
 
 // Custom BLE characteristic to confirm the last time stamp received by the phone
 BLECharacteristic checkinChar("3750215f-b147-4bdf-9271-0b32c1c5c49d", 
-    BLERead | BLEWrite | BLENotify, 4); 
+    BLERead | BLEWrite | BLENotify, 4);
 
 // Custom BLE characteristic to send steps 
 // (4 bytes for start time, 4 bytes for end time, 2 bytes for step count)
@@ -321,7 +317,6 @@ void setUpBLE() {
     blePeripheral.setLocalName("Mint");
     blePeripheral.setAdvertisedServiceUuid(myService.uuid());  // add the service UUID
     blePeripheral.addAttribute(myService);// add the BLE service
-    blePeripheral.addAttribute(timeChar); // add the time characteristic
     blePeripheral.addAttribute(bpmChar);  // add the BPM characteristic
     blePeripheral.addAttribute(batchChar);// add the BPM batch characteristic
     blePeripheral.addAttribute(ecgChar);  // add the ECG characteristic
@@ -451,14 +446,14 @@ void obtainInitTime() {
   
   // don't do anything until the phone gives you the current
   // time in epoch time
-  while(!timeChar.written()) {
+  while(!checkinChar.written()) {
     delay(1);
   }
 
   // get the time from the phone as a byte array and 
   // combine each byte into one 4-byte number
   const unsigned char *fromPhone;
-  fromPhone = timeChar.value(); 
+  fromPhone = checkinChar.value(); 
   unsigned long ts0 = ((unsigned long) fromPhone[0]);
   unsigned long ts1 = ((unsigned long) fromPhone[1]) << 8;
   unsigned long ts2 = ((unsigned long) fromPhone[2]) << 16;
