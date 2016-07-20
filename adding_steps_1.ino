@@ -75,7 +75,7 @@ unsigned long stepEndTime;
 unsigned long stepCount;
 
 boolean detectingSteps;
-# define MAX_TIME_SINCE_LAST_STEP 10
+# define MAX_SECS_BETWEEN_STEPS 10
 
 
 // BPM Memory management stuff ------------------------
@@ -113,7 +113,7 @@ const int FlashChipSelect = 21; // digital pin for flash chip CS pin
 
 #define NUM_BUFFS_STEP 3 // ***changing this changes the number of files in memory***
 
-#define DSIZE_STEP 24 // size of each unit of data stored in memory (two time stamps + step count)
+#define DSIZE_STEP 12 // size of each unit of data stored in memory (two time stamps + step count)
 
 #define DATA_PER_FILE_STEP (FSIZE_STEP / DSIZE_STEP) // how many data can be stored per file
 
@@ -126,7 +126,7 @@ short writeFileIndexStep, readFileIndexStep, ackFileIndexStep;
 
 unsigned long nextToPlaceStep;    // next location on the chip to write BPMs
 unsigned long nextToRetrieveStep; // next location on the chip to read BPMs
-                              // from and send them to the phone
+                                  //    from and send them to the phone
 unsigned long nextToAckStep;      // next location that hasn't been confirmed received
 
 unsigned long toMemBuffStep[3];   // holds two time stamps and a step count on their way to the chip
@@ -143,7 +143,7 @@ unsigned long fromMemBuffStep[3]; // two time stamps and a step count on their w
 #define NUM_ECGS 14
 
 #define BYTES_PER_PCKG_STEP 10
-#define NUM_PCKGS_STEP 4
+#define NUM_PCKGS_STEP 2
 #define BATCH_SIZE_STEP (NUM_PCKGS_STEP * BYTES_PER_PCKG_STEP)
 
 boolean ble_connected = false;  // keeps track of whether the Bluetooth is connected
@@ -227,6 +227,8 @@ void setup() { // called when the program starts
 
   setUpBLE(); // sets up the bluetooth services and characteristics 
 
+  setUpStepDetection(); // sets up CurieIMU for detecting steps
+
   pinMode(LED_PIN, OUTPUT);
 
   pinMode(LEADS_OFF_PLUS_PIN, INPUT); // Setup for leads off detection LO +
@@ -257,14 +259,14 @@ void setUpFlash() { // sets up the flash chip for memory management
 
   // create NUM_BUFFS number of files and open them
   int i;
-  for (i = 0; i < NUM_BUFFS; i++){
+  for (i = 0; i < NUM_BUFFS; i++) {
   
     String fname = "file";
     fname = fname + String(i);  // creating the file name
     char filename[6];
     fname.toCharArray(filename, 6);
 
-    if(!create_if_not_exists(filename)){ // creating the file
+    if (!create_if_not_exists(filename)) { // creating the file
       #ifdef usb
       Serial.println("Not enough space to create files");
       #endif
@@ -275,20 +277,20 @@ void setUpFlash() { // sets up the flash chip for memory management
 
   // create NUM_BUFFS_STEP number of files and open them
   int j;
-  for (j = 0; j < NUM_BUFFS_STEP; j++){
+  for (j = 0; j < NUM_BUFFS_STEP; j++) {
   
     String fname = "stepfile";
     fname = fname + String(j);  // creating the file name
     char filename[10];
     fname.toCharArray(filename, 10);
 
-    if(!create_if_not_exists(filename)){ // creating the file
+    if (!create_if_not_exists(filename)) { // creating the file
       #ifdef usb
       Serial.println("Not enough space to create step files");
       #endif
       return;
     }
-    flashFiles[j] = SerialFlash.open(filename); // opening the file
+    flashFilesStep[j] = SerialFlash.open(filename); // opening the file
   }
   
   writeFileIndex = 0; // we need to keep track of which files we're currently
@@ -324,10 +326,11 @@ boolean create_if_not_exists (const char *filename) {
   return true;
 }
 
+// adds all of the services and characteristics to the BLE peripheral
+// and begins communication
 void setUpBLE() {
   
-    /* Set a local name for the BLE device */
-    blePeripheral.setLocalName("Brett");
+    blePeripheral.setLocalName("Mint");
     blePeripheral.setAdvertisedServiceUuid(myService.uuid());  // add the service UUID
     blePeripheral.addAttribute(myService);// add the BLE service
     blePeripheral.addAttribute(timeChar); // add the time characteristic
@@ -338,9 +341,9 @@ void setUpBLE() {
     blePeripheral.addAttribute(stepChar);  // add the checkin characteristic
 
   
-      /* Now activate the BLE device.  It will start continuously transmitting BLE
-       advertising packets and will be visible to remote BLE central devices
-       until it receives a new connection */
+    // Activate the BLE device.  It will start continuously transmitting BLE
+    // advertising packets and will be visible to remote BLE central devices
+    // until it receives a new connection
     blePeripheral.begin();
   
     #ifdef usb
@@ -349,7 +352,9 @@ void setUpBLE() {
   
 }
 
-void setupStepDetection() {
+// Turn on step detection and initialize variables that keep track
+// of steps
+void setUpStepDetection() {
   
   CurieIMU.begin();
   // turn on step detection mode:
@@ -357,6 +362,8 @@ void setupStepDetection() {
   // enable step counting:
   CurieIMU.setStepCountEnabled(true);
 
+  // indicates that we're not currently in the middle of 
+  // an excursion
   detectingSteps = false;
   stepCount = 0;
   
@@ -364,7 +371,7 @@ void setupStepDetection() {
 
 void loop() { // called continuously
 
-  if(!bpm_queue.isEmpty()) { // check if there's the BPM to print
+  if (!bpm_queue.isEmpty()) { // check if there's the BPM to print
 
     // remove a BPM from the queue and send it to memory
     unsigned long heartRate = (unsigned long) bpm_queue.dequeue();
@@ -376,29 +383,35 @@ void loop() { // called continuously
      
   }
 
-  sendECG();
+  sendECG(); // attempt to send any current ECG measurements to the phone
 
-  if(ble_connected) {
-    
-    if(sentSinceCheckin > timeToCheckin){
-      checkin();
+  checkForSteps(); // see if any steps have been taken and, if so, process them
+  
+  if (ble_connected) { // only consider sending data if we believe we're connected
+
+    #ifdef nate
+    if (sentSinceCheckin > timeToCheckin) {
+      checkin(); // periodically, we check to make sure the phone hasn't gone out of
+                 //   range without properly disconnecting
     }
+    #endif
     
-    if(blePeripheral.connected()) { // check if we're still connected to the phone
+    if (blePeripheral.connected()) { // check if we're still connected to the phone
 
-      if (caughtUp()){
-        liveSend();
+      if (caughtUp()) { // if we don't have a lot of data in memory, we send BPMs
+        liveSend();     //   to the phone one at a time
         
-      } else {   
-        batchSend(); 
+      } else {          // if we have plenty of data in memory, we send BPMs to the
+        batchSend();    //    phone in batches
       }
+
+      liveSendStep();   // send any available step information to the phone
       
-    } else { // if we disconnect from the phone, we stop trying to send things
-             //   to it and turn off the LED
-      handleDisconnect();
+    } else { // If we realize the phone has disconnected, we call the function that          
+      handleDisconnect(); // responds to the disconnection
     }
     
-  } else { // If we haven't connected to the phone yet, we attempt to do so
+  } else { // If we're not currently connected to the phone, we attempt to connect
     tryToConnect();
   }
 }
@@ -408,7 +421,7 @@ void tryToConnect() {
 
   central = blePeripheral.central();
   
-  if(central){ // when we've successfully connected to the phone
+  if (central) { // when we've successfully connected to the phone
     #ifdef usb
     Serial.print("Connected to central: ");
     // print the central's MAC address:
@@ -433,20 +446,24 @@ void tryToConnect() {
   }
 }
 
+// called after the phone disconnects, ties up loose ends
 void handleDisconnect() {
-    safeToFill = false;
-    ble_connected = false;
+    safeToFill = false; // tells the ecg queue not to get filled
+    ble_connected = false; // keep track of whether bluetooth is connected
     #ifdef usb
     Serial.print("Disconnected from central: ");
     Serial.println(central.address());
     #endif
-    digitalWrite(LED_PIN, LOW);
+    digitalWrite(LED_PIN, LOW); // turns off connection light
 }
 
+// gets the current from the phone and uses it to sync the
+// Arduino's internal clock up with reality 
 void obtainInitTime() {
+  
   // don't do anything until the phone gives you the current
   // time in epoch time
-  while(!timeChar.written()){
+  while(!timeChar.written()) {
     delay(1);
   }
 
@@ -490,6 +507,51 @@ void liveSend() {
   } 
 }
 
+// sends steps to the phone one at a time
+void liveSendStep() {
+  
+  if (retrieveFromMemoryStep()) { // only update the characteristic if 
+                                  // new data was read
+
+    unsigned long numSteps = fromMemBuffStep[0];  // get the step count
+    unsigned long timeStart = fromMemBuffStep[1]; // get the start time
+    unsigned long timeEnd = fromMemBuffStep[2];   // get the end time
+
+
+    // get each of the data separately so that it can be send
+    // in a bluetooth compatible byte array
+
+    unsigned char ns0 = numSteps & 0xff;
+    unsigned char ns1 = (numSteps >> 8) & 0xff; 
+
+    unsigned char ts0 = timeStart & 0xff;      
+    unsigned char ts1 = (timeStart >> 8) & 0xff;  
+    unsigned char ts2 = (timeStart >> 16) & 0xff;   
+    unsigned char ts3 = (timeStart >> 24) & 0xff;
+
+    unsigned char te0 = timeEnd & 0xff;     
+    unsigned char te1 = (timeEnd >> 8) & 0xff;
+    unsigned char te2 = (timeEnd >> 16) & 0xff;   
+    unsigned char te3 = (timeEnd >> 24) & 0xff;
+
+    
+    // package the data and send it to the phone
+    unsigned char stepCharArray[BYTES_PER_PCKG_STEP] 
+      = { te0, te1, te2, te3, ts0, ts1, ts2, ts3, ns0, ns1 };
+    stepChar.setValue(stepCharArray, BYTES_PER_PCKG_STEP);
+
+    #ifdef usb
+    Serial.print("STEP package: ");
+    Serial.print(numSteps);
+    Serial.print(", ");
+    Serial.print(timeStart);
+    Serial.print("--");
+    Serial.println(timeEnd);
+    #endif
+  } 
+}
+
+// send BPMs and time stamps to the phone in packages of 4 at a time
 void batchSend() {
   unsigned char batchCharArray[BATCH_SIZE];
   
@@ -519,67 +581,71 @@ void batchSend() {
 
     } else {
       #ifdef usb
-      Serial.println("you have made an error");
+      Serial.println("not reached");
       #endif
     }
   }
 
-  batchChar.setValue(batchCharArray, BATCH_SIZE);
+  batchChar.setValue(batchCharArray, BATCH_SIZE); // send to the phone
 
   #ifdef usb
   Serial.println();
   #endif
 }
 
+// send ECG measurements to the phone to be graphed
 void sendECG() {
-  if (ecg_queue.count() >= NUM_ECGS) { // check if there are at least 14 ECG measurements to print
+  // check if there are at least 14 ECG measurements to print
+  if (ecg_queue.count() >= NUM_ECGS) {
       
      // remove 14 ECG measurements from the queue and package them
      unsigned char ecgCharArray[NUM_ECGS];
      int i;
-     for (i = 0; i < NUM_ECGS; i++){
+     for (i = 0; i < NUM_ECGS; i++) {
        ecgCharArray[i] = ecg_queue.dequeue();
      }
      
-     safeToFill = true; // allow ECG measurements to be added to the queue if
-                         // they weren't allowed already    
-
-     ecgChar.setValue(ecgCharArray, NUM_ECGS); // send the array of 14 ECG measurements to
-                                          // the phone to be graphed
+     // allow ECG measurements to be added to the queue   
+     safeToFill = true; 
+     
+     // send the array of 14 ECG measurements to the phone to be graphed
+     ecgChar.setValue(ecgCharArray, NUM_ECGS); 
+                                         
       
      } else {    
-      safeToFill = true; // allow ECG measurements to be added to the queue if
-                         // they weren't allowed already
+      safeToFill = true; // allow ECG measurements to be added to the queue
      }
 }
 
 // ----------------------------------------------------------------------
 
-void placeInMemory() { // store BPMs and timestamps on the flash chip
+// store BPMs and timestamps on the flash chip
+void placeInMemory() {
 
   flashFiles[writeFileIndex].seek(nextToPlace); // move cursor
   flashFiles[writeFileIndex].write(toMemBuff, DSIZE); // write to chip
   nextToPlace += DSIZE; // increment the offset to be written to next
 
   // check if it's time to switch files
-  if(nextToPlace >= FSIZE){
+  if (nextToPlace >= FSIZE) {
     switchWriteFiles();
   }
 }
 
-boolean retrieveFromMemory() { // retrieve BPMs and time stamps from the flash
-                               //   chip to send them to the phone
+// retrieve BPMs and time stamps from the flash chip to send to the phone
+boolean retrieveFromMemory() {
                                
-  if((readFileIndex == writeFileIndex) && (nextToRetrieve >= nextToPlace)){
-    return false; // if the read pointer has caught up to the write pointer,
-                  // don't try to read any new data yet
+  if ((readFileIndex == writeFileIndex) 
+      && (nextToRetrieve >= nextToPlace)) {
+    return false; // if the read pointer has caught up to the write
+                  // pointer, don't try to read any new data yet
   }
   flashFiles[readFileIndex].seek(nextToRetrieve); // move cursor
   flashFiles[readFileIndex].read(fromMemBuff, DSIZE); // read from chip
   nextToRetrieve += DSIZE; // increment the offset to be read from next
 
   // check if it's time to switch files
-  if(nextToRetrieve >= FSIZE){
+  if (nextToRetrieve >= FSIZE) {
     switchReadFiles();
   }
   return true;
@@ -604,10 +670,10 @@ void switchWriteFiles() {
   // if the file that's just been erased was the file
   // that the ack or the read pointer is currently on,
   // evict those pointers to the next file
-  if(writeFileIndex == ackFileIndex){
+  if (writeFileIndex == ackFileIndex) {
     switchAckFiles();
   }
-  if(writeFileIndex == readFileIndex){
+  if (writeFileIndex == readFileIndex) {
     switchReadFiles();
   }
 }
@@ -664,87 +730,75 @@ void checkForSteps() {
   // if we're currently in the middle of an excursion...
   if (detectingSteps) {
     
-    unsigned int latestCount = CurieIMU.getStepCount();
+    unsigned long latestCount = (unsigned long) CurieIMU.getStepCount();
     unsigned long currentTime = now();
     
-    if (stepCount != latestCount){
+    if (stepCount != latestCount) {
       
       stepCount = latestCount;
       stepEndTime = currentTime;
 
     // if no steps have been taken for a certain amount of time, we
     // consider the excursion to be over
-    } else if (currentTime - stepEndTime < MAX_TIME_SINCE_LAST_STEP){
+    } else if (currentTime - stepEndTime > MAX_SECS_BETWEEN_STEPS) {
 
       toMemBuffStep[0] = stepCount;     
       toMemBuffStep[1] = stepStartTime; // put the data into the buffer
       toMemBuffStep[2] = stepEndTime;   //   to be sent to memory
       placeInMemoryStep(); // store the start and end times and step count
                            //   on the flash chip
-
+      
       // reset the step count back to 0 for the next excursion
       CurieIMU.resetStepCount();
       stepCount = 0;
 
       // indicate that the excursion has concluded
       detectingSteps = false;
+
+      #ifdef usb
+      Serial.println("excursion ended");
+      #endif
     }
 
   // if we weren't currently in an excursion, check if it's time to
   // start a new one
-  } else if (CurieIMU.getStepCount() > 0){
-
-    // set the current time to the start time of the excursion
-    stepStartTime = now();
-
-    // indicate that an excursion has commenced
-    detectingSteps = true;
-  }
-}
-
-void liveSendStep() {
-  
-  if (retrieveFromMemoryStep()) { // only update the characteristic if new data was read
-
-    unsigned long numSteps = fromMemBuffStep[0];
-    unsigned long timeStart = fromMemBuffStep[1]; // get the time stamp
-    unsigned long timeEnd = fromMemBuffStep[2]; // get the time stamp
-
-    unsigned char ns0 = numSteps & 0xff;
-    unsigned char ns1 = (numSteps >> 8) & 0xff; 
-
-    unsigned char ts0 = timeStart & 0xff;      // get each byte from the time stamp separately
-    unsigned char ts1 = (timeStart >> 8) & 0xff;  // so that the time stamp can be sent in a
-    unsigned char ts2 = (timeStart >> 16) & 0xff;    // bluetooth compatible format
-    unsigned char ts3 = (timeStart >> 24) & 0xff;
-
-    unsigned char te0 = timeEnd & 0xff;      // get each byte from the time stamp separately
-    unsigned char te1 = (timeEnd >> 8) & 0xff;  // so that the time stamp can be sent in a
-    unsigned char te2 = (timeEnd >> 16) & 0xff;    // bluetooth compatible format
-    unsigned char te3 = (timeEnd >> 24) & 0xff;
+  } else {
     
-    // package the the BPM and time stamp, switching to big-endian
-    unsigned char stepCharArray[BYTES_PER_PCKG_STEP] = { te0, te1, te2, te3, ts0, ts1, ts2, ts3, ns0, ns1 };
-    stepChar.setValue(stepCharArray, BYTES_PER_PCKG_STEP); // send them to the phone
-  } 
+    if (CurieIMU.getStepCount() > 0) {
+  
+
+      // set the current time to the start time of the excursion
+      stepStartTime = now();
+  
+      // indicate that an excursion has commenced
+      detectingSteps = true;
+  
+      #ifdef usb
+      Serial.println("excursion begun");
+      #endif
+    }
+  }                                                  
 }
 
-void placeInMemoryStep() { // store BPMs and timestamps on the flash chip
+// store steps and their time frames on the flash chip
+void placeInMemoryStep() { 
 
   flashFilesStep[writeFileIndexStep].seek(nextToPlaceStep); // move cursor
+  
   flashFilesStep[writeFileIndexStep].write(toMemBuffStep, DSIZE_STEP); // write to chip
   nextToPlaceStep += DSIZE_STEP; // increment the offset to be written to next
 
   // check if it's time to switch files
-  if(nextToPlaceStep >= FSIZE_STEP){
+  if (nextToPlaceStep >= FSIZE_STEP) {
     switchWriteFilesStep();
   }
 }
 
-boolean retrieveFromMemoryStep() { // retrieve BPMs and time stamps from the flash
-                               //   chip to send them to the phone
+// retrieve steps and time frames from the flash chip to send them to the phone
+boolean retrieveFromMemoryStep() {
                                
-  if((readFileIndexStep == writeFileIndexStep) && (nextToRetrieveStep >= nextToPlaceStep)){
+  if ((readFileIndexStep == writeFileIndexStep) 
+      && (nextToRetrieveStep >= nextToPlaceStep)) {
     return false; // if the read pointer has caught up to the write pointer,
                   // don't try to read any new data yet
   }
@@ -753,7 +807,7 @@ boolean retrieveFromMemoryStep() { // retrieve BPMs and time stamps from the fla
   nextToRetrieveStep += DSIZE_STEP; // increment the offset to be read from next
 
   // check if it's time to switch files
-  if(nextToRetrieveStep >= FSIZE_STEP){
+  if (nextToRetrieveStep >= FSIZE_STEP) {
     switchReadFilesStep();
   }
   return true;
@@ -778,10 +832,10 @@ void switchWriteFilesStep() {
   // if the file that's just been erased was the file
   // that the ack or the read pointer is currently on,
   // evict those pointers to the next file
-  if(writeFileIndexStep == ackFileIndexStep){
+  if (writeFileIndexStep == ackFileIndexStep) {
     switchAckFilesStep();
   }
-  if(writeFileIndexStep == readFileIndexStep){
+  if (writeFileIndexStep == readFileIndexStep) {
     switchReadFilesStep();
   }
 }
@@ -837,11 +891,11 @@ boolean caughtUpStep() {
 // called periodically to make sure the phone is still connected
 void checkin() {
   
-  sentSinceCheckin = 0;
+  sentSinceCheckin = 0; // reset the time since the last checkin back to zero
 
   unsigned char ts0 = lastTimeSent & 0xff;  // get each byte from the time stamp separately
-  unsigned char ts1 = (lastTimeSent >> 8) & 0xff; // so that the time stamp can be sent in a
-  unsigned char ts2 = (lastTimeSent >> 16) & 0xff;    // bluetooth compatible format
+  unsigned char ts1 = (lastTimeSent >> 8) & 0xff; // so that the time stamp can be sent in 
+  unsigned char ts2 = (lastTimeSent >> 16) & 0xff;    // a bluetooth compatible format
   unsigned char ts3 = (lastTimeSent >> 24) & 0xff;
 
   // send a time stamp to the phone
@@ -855,7 +909,7 @@ void checkin() {
   // range, we need to force a disconnect
   if (!checkinChar.written()) {
 
-    if(blePeripheral.disconnect()){
+    if (blePeripheral.disconnect()) {
       #ifdef usb
       Serial.println("success");
       #endif
@@ -864,7 +918,12 @@ void checkin() {
       Serial.println("failure");
       #endif
     }
-    handleDisconnect();
+    handleDisconnect(); // when disconnect starts working,
+                        // this may get called twice, so we
+                        // may need to delete this call
+
+    // move read pointer back toe the position after the last data
+    // whose receipt was confirmed by the phone
     readFileIndex = ackFileIndex;
     nextToRetrieve = nextToAck;
     #ifdef usb
@@ -881,7 +940,7 @@ void checkin() {
 
     // a 1 means we're caught up, so I can move the ack
     // pointer up to where the read pointer is
-    if (((int)fromPhone[3]) == 1){
+    if (((int)fromPhone[3]) == 1) {
       ackFileIndex = readFileIndex;
       nextToAck = nextToRetrieve;
       #ifdef usb
@@ -908,14 +967,14 @@ void updateHeartRate() {
     
     // only read data if ECG chip has detected that leads are attached to patient
     boolean leads_are_on = (digitalRead(LEADS_OFF_PLUS_PIN) == 0) && (digitalRead(LEADS_OFF_MINUS_PIN) == 0);
-    if(leads_are_on){     
+    if (leads_are_on) {     
            
       // read next ECG data point
       int next_ecg_pt = analogRead(ECG_PIN);
       
-      if (ble_connected && safeToFill){
+      if (ble_connected && safeToFill) {
         ecg_q_count++;
-        if(ecg_q_count > 2 && ecg_queue.count() < 70){ // we only need to send every nth ECG value to the phone
+        if (ecg_q_count > 2 && ecg_queue.count() < 70) { // we only need to send every nth ECG value to the phone
                            // a lower value in this loop means a higher resolution
                            // for the graph on the phone
         
@@ -928,7 +987,7 @@ void updateHeartRate() {
       // give next data point to algorithm
       QRS_detected = detect(next_ecg_pt);
             
-      if(QRS_detected == true){
+      if (QRS_detected == true) {
         
         foundTimeMicros = micros();
 
@@ -940,9 +999,9 @@ void updateHeartRate() {
         bpm += bpm_buff[bpm_buff_RD_idx];
     
         tmp = bpm_buff_RD_idx - BPM_BUFFER_SIZE + 1;
-        if(tmp < 0) tmp += BPM_BUFFER_SIZE;
+        if (tmp < 0) tmp += BPM_BUFFER_SIZE;
 
-        if (timeInitiated){
+        if (timeInitiated) {
           // bpm_queue.enqueue(bpm/BPM_BUFFER_SIZE); // sends the current average BPM to the queue to be printed
           bpm_queue.enqueue(BPMcounter++); 
         }
@@ -999,7 +1058,7 @@ boolean detect(float new_ecg_pt) {
  
   /* High pass filtering */
   
-  if(number_iter < M){
+  if (number_iter < M) {
     // first fill buffer with enough points for HP filter
     hp_sum += ecg_buff[ecg_buff_RD_idx];
     hp_buff[hp_buff_WR_idx] = 0;
@@ -1008,7 +1067,7 @@ boolean detect(float new_ecg_pt) {
     hp_sum += ecg_buff[ecg_buff_RD_idx];
     
     tmp = ecg_buff_RD_idx - M;
-    if(tmp < 0) tmp += M + 1;
+    if (tmp < 0) tmp += M + 1;
     
     hp_sum -= ecg_buff[tmp];
     
@@ -1016,7 +1075,7 @@ boolean detect(float new_ecg_pt) {
     float y2 = 0;
     
     tmp = (ecg_buff_RD_idx - ((M+1)/2));
-    if(tmp < 0) tmp += M + 1;
+    if (tmp < 0) tmp += M + 1;
     
     y2 = ecg_buff[tmp];
     
@@ -1039,14 +1098,14 @@ boolean detect(float new_ecg_pt) {
   // shift in new sample from high pass filter
   lp_sum += hp_buff[hp_buff_RD_idx] * hp_buff[hp_buff_RD_idx];
   
-  if(number_iter < N){
+  if (number_iter < N) {
     // first fill buffer with enough points for LP filter
     next_eval_pt = 0;
     
   } else {
     // shift out oldest data point
     tmp = hp_buff_RD_idx - N;
-    if(tmp < 0) tmp += (N+1);
+    if (tmp < 0) tmp += (N+1);
     
     lp_sum -= hp_buff[tmp] * hp_buff[tmp];
     
@@ -1060,8 +1119,8 @@ boolean detect(float new_ecg_pt) {
 
   /* Adapative thresholding beat detection */
   // set initial threshold        
-  if(number_iter < winSize) {
-    if(next_eval_pt > treshold) {
+  if (number_iter < winSize) {
+    if (next_eval_pt > treshold) {
       treshold = next_eval_pt;
     }
     // only increment number_iter iff it is less than winSize
@@ -1070,20 +1129,20 @@ boolean detect(float new_ecg_pt) {
   }
   
   // check if detection hold off period has passed
-  if(triggered == true){
+  if (triggered == true) {
     trig_time++;
     
-    if(trig_time >= 100){
+    if (trig_time >= 100) {
       triggered = false;
       trig_time = 0;
     }
   }
   
   // find if we have a new max
-  if(next_eval_pt > win_max) win_max = next_eval_pt;
+  if (next_eval_pt > win_max) win_max = next_eval_pt;
   
   // find if we are above adaptive threshold
-  if(next_eval_pt > treshold && !triggered) {
+  if (next_eval_pt > treshold && !triggered) {
     triggered = true;
 
     return true;
@@ -1093,7 +1152,7 @@ boolean detect(float new_ecg_pt) {
           
   // adjust adaptive threshold using max of signal found 
   // in previous window            
-  if(win_idx++ >= winSize){
+  if (win_idx++ >= winSize) {
     
     // weighting factor for determining the contribution of
     // the current peak value to the threshold adjustment
