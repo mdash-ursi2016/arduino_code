@@ -13,19 +13,7 @@
 #include <QueueArray.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-#include <BLEPeripheral.h>
-#include <BLEDescriptor.h>
-#include <BLEUuid.h>
-#include <BLECommon.h>
-#include <BLEAttribute.h>
-#include <BLETypedCharacteristics.h>
 #include <CurieBLE.h>
-#include <BLECentral.h>
-#include <BLEService.h>
-#include <BLECharacteristic.h>
-#include <BLETypedCharacteristic.h>
-
 #include "CurieIMU.h"
 #include <CurieTime.h>
 #include <SerialFlash.h>
