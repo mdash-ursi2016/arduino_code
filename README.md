@@ -1,3 +1,3 @@
 # arduino_code
 
-the latest relevant arduino sketch is in the file bpm_ts_flash_4.ino
+the latest relevant arduino sketch is in the file adding_steps_1.ino
