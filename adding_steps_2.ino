@@ -20,8 +20,8 @@
 #include <CurieTime.h>
 #include <SerialFlash.h>
 
-#define usb  // COMMENT THIS OUT IF CONNECTED TO BATTERY INSTEAD OF COMPUTER
-#define nate // COMMENT THIS OUT IF USING AN NRF APP INSTEAD OF NATE'S APP
+// #define usb  // COMMENT THIS OUT IF CONNECTED TO BATTERY INSTEAD OF COMPUTER
+// #define nate // COMMENT THIS OUT IF USING AN NRF APP INSTEAD OF NATE'S APP
 
 /* The portions of this code that implement the Pan-Tompkins QRS-detection algorithm were 
  *  modified from code taken from Blake Milner's real_time_QRS_detection GitHub repository:
@@ -36,7 +36,7 @@ unsigned long BPMcounter;
 
 // pins for leads off detection
 #define LEADS_OFF_PLUS_PIN 10      // the number of the LO+ pin (digital)
-#define LEADS_OFF_MINUS_PIN 11      // the number of the LO- pin (digital) 
+#define LEADS_OFF_MINUS_PIN 11     // the number of the LO- pin (digital) 
 
 const int frequency = 5000; // rate at which the heart rate is checked
                             // (in microseconds): works out to 200 hz
@@ -62,7 +62,7 @@ int sentSinceCheckin;
 
 unsigned long stepStartTime;
 unsigned long stepEndTime;
-unsigned long stepCount;
+int stepCount;
 
 boolean detectingSteps;
 # define MAX_SECS_BETWEEN_STEPS 10
@@ -99,11 +99,11 @@ const int FlashChipSelect = 21; // digital pin for flash chip CS pin
 
 // ------Step Memory Management Stuff--------------------
 
-#define FSIZE_STEP 384 // the size of a file on the flash chip
+#define FSIZE_STEP 128 // the size of a file on the flash chip
 
 #define NUM_BUFFS_STEP 3 // ***changing this changes the number of files in memory***
 
-#define DSIZE_STEP 12 // size of each unit of data stored in memory (two time stamps + step count)
+#define DSIZE_STEP 8 // size of each unit of data stored in memory (two time stamps + step count)
 
 #define DATA_PER_FILE_STEP (FSIZE_STEP / DSIZE_STEP) // how many data can be stored per file
 
@@ -119,8 +119,8 @@ unsigned long nextToRetrieveStep; // next location on the chip to read BPMs
                                   //    from and send them to the phone
 unsigned long nextToAckStep;      // next location that hasn't been confirmed received
 
-unsigned long toMemBuffStep[3];   // holds two time stamps and a step count on their way to the chip
-unsigned long fromMemBuffStep[3]; // two time stamps and a step count on their way back from the chip
+unsigned char toMemBuffStep[8];   // holds two time stamps and a step count on their way to the chip
+unsigned char fromMemBuffStep[8]; // two time stamps and a step count on their way back from the chip
                                   // to be sent to the phone
 
 
@@ -132,7 +132,7 @@ unsigned long fromMemBuffStep[3]; // two time stamps and a step count on their w
 
 #define NUM_ECGS 14
 
-#define BYTES_PER_PCKG_STEP 10
+#define BYTES_PER_PCKG_STEP 8
 #define NUM_PCKGS_STEP 2
 #define BATCH_SIZE_STEP (NUM_PCKGS_STEP * BYTES_PER_PCKG_STEP)
 
@@ -160,7 +160,7 @@ BLECharacteristic checkinChar("3750215f-b147-4bdf-9271-0b32c1c5c49d",
 // Custom BLE characteristic to send steps 
 // (4 bytes for start time, 4 bytes for end time, 2 bytes for step count)
 BLECharacteristic stepChar("81d4ef8b-bb65-4fef-b701-2d7d9061e492", 
-    BLEWrite | BLENotify, 10); 
+    BLEWrite | BLENotify, BYTES_PER_PCKG_STEP); 
 
 BLECentral central = blePeripheral.central(); // the Blutooth central device (the phone)
     
@@ -498,40 +498,17 @@ void liveSendStep() {
   if (retrieveFromMemoryStep()) { // only update the characteristic if 
                                   // new data was read
 
-    unsigned long numSteps = fromMemBuffStep[0];  // get the step count
-    unsigned long timeStart = fromMemBuffStep[1]; // get the start time
-    unsigned long timeEnd = fromMemBuffStep[2];   // get the end time
-
-
-    // get each of the data separately so that it can be send
-    // in a bluetooth compatible byte array
-
-    unsigned char ns0 = numSteps & 0xff;
-    unsigned char ns1 = (numSteps >> 8) & 0xff; 
-
-    unsigned char ts0 = timeStart & 0xff;      
-    unsigned char ts1 = (timeStart >> 8) & 0xff;  
-    unsigned char ts2 = (timeStart >> 16) & 0xff;   
-    unsigned char ts3 = (timeStart >> 24) & 0xff;
-
-    unsigned char te0 = timeEnd & 0xff;     
-    unsigned char te1 = (timeEnd >> 8) & 0xff;
-    unsigned char te2 = (timeEnd >> 16) & 0xff;   
-    unsigned char te3 = (timeEnd >> 24) & 0xff;
-
-    
     // package the data and send it to the phone
-    unsigned char stepCharArray[BYTES_PER_PCKG_STEP] 
-      = { te0, te1, te2, te3, ts0, ts1, ts2, ts3, ns0, ns1 };
+    unsigned char stepCharArray[BYTES_PER_PCKG_STEP];
+
+    int i;
+    for (i = 0; i < BYTES_PER_PCKG_STEP; i++){
+      stepCharArray[i] = fromMemBuffStep[i];
+    }
     stepChar.setValue(stepCharArray, BYTES_PER_PCKG_STEP);
 
     #ifdef usb
-    Serial.print("STEP package: ");
-    Serial.print(numSteps);
-    Serial.print(", ");
-    Serial.print(timeStart);
-    Serial.print("--");
-    Serial.println(timeEnd);
+    Serial.println("STEP package");
     #endif
   } 
 }
@@ -715,7 +692,7 @@ void checkForSteps() {
   // if we're currently in the middle of an excursion...
   if (detectingSteps) {
     
-    unsigned long latestCount = (unsigned long) CurieIMU.getStepCount();
+    int latestCount = CurieIMU.getStepCount();
     unsigned long currentTime = now();
     
     if (stepCount != latestCount) {
@@ -725,24 +702,45 @@ void checkForSteps() {
 
     // if no steps have been taken for a certain amount of time, we
     // consider the excursion to be over
-    } else if (currentTime - stepEndTime > MAX_SECS_BETWEEN_STEPS) {
+    } else {
+            
+      if (currentTime - stepEndTime > MAX_SECS_BETWEEN_STEPS) {
 
-      toMemBuffStep[0] = stepCount;     
-      toMemBuffStep[1] = stepStartTime; // put the data into the buffer
-      toMemBuffStep[2] = stepEndTime;   //   to be sent to memory
-      placeInMemoryStep(); // store the start and end times and step count
-                           //   on the flash chip
-      
-      // reset the step count back to 0 for the next excursion
-      CurieIMU.resetStepCount();
-      stepCount = 0;
+        unsigned long stepOffset = stepEndTime - stepStartTime;
 
-      // indicate that the excursion has concluded
-      detectingSteps = false;
+        #ifdef usb
+        Serial.print(stepStartTime);
+        Serial.print(", ");
+        Serial.print(stepOffset);
+        Serial.print(", ");
+        Serial.println(stepCount);
+        #endif
 
-      #ifdef usb
-      Serial.println("excursion ended");
-      #endif
+        toMemBuffStep[0] = stepStartTime & 0xff;      
+        toMemBuffStep[1] = (stepStartTime >> 8) & 0xff;  
+        toMemBuffStep[2] = (stepStartTime >> 16) & 0xff;   
+        toMemBuffStep[3] = (stepStartTime >> 24) & 0xff;
+
+        toMemBuffStep[4] = stepOffset & 0xff;      
+        toMemBuffStep[5] = (stepOffset >> 8) & 0xff;  
+
+        toMemBuffStep[6] = stepCount & 0xff;      
+        toMemBuffStep[7] = (stepCount >> 8) & 0xff;        
+        
+        placeInMemoryStep(); // store the start and end times and step count
+                             //   on the flash chip
+        
+        // reset the step count back to 0 for the next excursion
+        CurieIMU.resetStepCount();
+        stepCount = 0;
+  
+        // indicate that the excursion has concluded
+        detectingSteps = false;
+  
+        #ifdef usb
+        Serial.println("excursion ended");
+        #endif
+      }
     }
 
   // if we weren't currently in an excursion, check if it's time to
@@ -751,7 +749,6 @@ void checkForSteps() {
     
     if (CurieIMU.getStepCount() > 0) {
   
-
       // set the current time to the start time of the excursion
       stepStartTime = now();
   
