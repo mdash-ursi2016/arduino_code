@@ -24,8 +24,8 @@
 // #define nate // COMMENT THIS OUT IF USING AN NRF APP INSTEAD OF NATE'S APP
 
 /* The portions of this code that implement the Pan-Tompkins QRS-detection algorithm were 
- *  modified from code taken from Blake Milner's real_time_QRS_detection GitHub repository:
- https://github.com/blakeMilner/real_time_QRS_detection/blob/master/QRS_arduino/QRS.ino */
+ * modified from code taken from Blake Milner's real_time_QRS_detection GitHub repository:
+https://github.com/blakeMilner/real_time_QRS_detection/blob/master/QRS_arduino/QRS.ino */
 
 // General BPM and ECG stuff --------------------------------
 
@@ -78,7 +78,7 @@ boolean detectingSteps;
 
 #define DATA_PER_FILE (FSIZE / DSIZE) // how many data can be stored per file
 
-#define STORAGE_LENGTH (DATA_PER_FILE * NUM_BUFFS) // how many data can be stored total
+#define STORAGE_LENGTH (DATA_PER_FILE * NUM_BUFFS) // total data that can be stored
 
 SerialFlashFile flashFiles[NUM_BUFFS]; // holds all the files 
 
@@ -119,12 +119,13 @@ short writeFileIndexStep, readFileIndexStep, ackFileIndexStep;
 
 unsigned long nextToPlaceStep;    // next location on the chip to write BPMs
 unsigned long nextToRetrieveStep; // next location on the chip to read BPMs
-                                  //    from and send them to the phone
+                                  // from and send them to the phone
 unsigned long nextToAckStep;      // next location that hasn't been confirmed received
 
-unsigned char toMemBuffStep[8];   // holds a time stamp + offset + step count on its 
-unsigned char fromMemBuffStep[8]; // way to memory two time stamps and a step count on 
-                                  // their way back from the chip to be sent to the phone
+unsigned char toMemBuffStep[8];   // holds a time stamp + offset + step count on its
+                                  // way to memory 
+unsigned char fromMemBuffStep[8]; // two time stamps and a step count on their way 
+                                  // back from the chip to be sent to the phone
 
 // Bluetooth stuff --------------------------------
 
@@ -182,8 +183,8 @@ BLECentral central = blePeripheral.central();
 #define RAND_RES 100000000
 
 // timing variables
-unsigned long foundTimeMicros = 0;      // time at which last QRS was found
-unsigned long old_foundTimeMicros = 0;  // time at which QRS before last was found
+unsigned long foundTimeMicros = 0;     // time at which last QRS was found
+unsigned long old_foundTimeMicros = 0; // time at which QRS before last was found
 
 // interval at which to take samples and iterate algorithm (microseconds)
 const long PERIOD = 1000000 / winSize;
@@ -229,8 +230,8 @@ void setup() { // called when the program starts
 
 void setUpFlash() { // sets up the flash chip for memory management
   
-   if (!SerialFlash.begin(FlashChipSelect)) { // make sure we successfully connect to
-    #ifdef usb                                // the flash chip
+   if (!SerialFlash.begin(FlashChipSelect)) { // make sure we successfully 
+    #ifdef usb                                // connect to the flash chip
     Serial.println("Unable to access SPI Flash chip");
     #endif                                                                                                                                                                             
   }
@@ -320,7 +321,7 @@ boolean create_if_not_exists (const char *filename) {
 void setUpBLE() {
   
     blePeripheral.setLocalName("Mint");
-    blePeripheral.setAdvertisedServiceUuid(myService.uuid()); // add the service UUID
+    blePeripheral.setAdvertisedServiceUuid(myService.uuid()); // add service UUID
     blePeripheral.addAttribute(myService);// add the BLE service
     blePeripheral.addAttribute(bpmChar);  // add the BPM characteristic
     blePeripheral.addAttribute(batchChar);// add the BPM batch characteristic
@@ -475,10 +476,10 @@ void obtainInitTime() {
 void liveSend() {
   if (retrieveFromMemory()) { // only update the characteristic if new data was read
     unsigned long timeStamp = fromMemBuff[1]; // get the time stamp
-    unsigned char ts0 = timeStamp & 0xff;      // get each byte from the time stamp separately
-    unsigned char ts1 = (timeStamp >> 8) & 0xff;  // so that the time stamp can be sent in a
-    unsigned char ts2 = (timeStamp >> 16) & 0xff;    // bluetooth compatible format
-    unsigned char ts3 = (timeStamp >> 24) & 0xff;
+    unsigned char ts0 = timeStamp & 0xff;         // get each byte from the time 
+    unsigned char ts1 = (timeStamp >> 8) & 0xff;  // stamp separately so that 
+    unsigned char ts2 = (timeStamp >> 16) & 0xff; // the time stamp can be sent 
+    unsigned char ts3 = (timeStamp >> 24) & 0xff; // in a bluetooth compatible format
   
     #ifdef usb
     Serial.print(fromMemBuff[0]);
@@ -524,11 +525,11 @@ void batchSend() {
   short i;
   for (i = 0; i < NUM_PCKGS; i++) {
     if (retrieveFromMemory()) {
-      unsigned long timeStamp = fromMemBuff[1]; // get the time stamp
-      unsigned char ts0 = timeStamp & 0xff;      // get each byte from the time 
-      unsigned char ts1 = (timeStamp >> 8) & 0xff; // stamp separately so that the 
-      unsigned char ts2 = (timeStamp >> 16) & 0xff;  // time stamp can be sent in 
-      unsigned char ts3 = (timeStamp >> 24) & 0xff;    // a bluetooth compatible format
+      unsigned long timeStamp = fromMemBuff[1];// get the time stamp
+      unsigned char ts0 = timeStamp & 0xff;     // get each byte from the time 
+      unsigned char ts1 = (timeStamp >> 8) & 0xff;// stamp separately so that the 
+      unsigned char ts2 = (timeStamp >> 16) & 0xff;// time stamp can be sent in 
+      unsigned char ts3 = (timeStamp >> 24) & 0xff;  // a bluetooth compatible format
 
       short offset = i * BYTES_PER_PCKG;
 
@@ -887,10 +888,10 @@ void checkin() {
   
   sentSinceCheckin = 0; // reset the time since the last checkin back to zero
 
-  unsigned char ts0 = lastTimeSent & 0xff;      // get each byte from the 
-  unsigned char ts1 = (lastTimeSent >> 8) & 0xff; // time stamp separately so that
-  unsigned char ts2 = (lastTimeSent >> 16) & 0xff;  // the time stamp can be sent in 
-  unsigned char ts3 = (lastTimeSent >> 24) & 0xff;    // a bluetooth compatible format
+  unsigned char ts0 = lastTimeSent & 0xff;     // get each byte from the 
+  unsigned char ts1 = (lastTimeSent >> 8) & 0xff;// time stamp separately so that
+  unsigned char ts2 = (lastTimeSent >> 16) & 0xff;// the time stamp can be sent in 
+  unsigned char ts3 = (lastTimeSent >> 24) & 0xff;  // a bluetooth compatible format
 
   // send a time stamp to the phone
   unsigned char lastTimeArray[4] = { ts0, ts1, ts2, ts3 };  
@@ -954,13 +955,15 @@ void checkin() {
   }
 }
 
-// interrupt handler: uses the QRS-detection algorithm to search for a new BPM
+// interrupt handler: 
+// uses the QRS-detection algorithm to search for a new BPM
 void updateHeartRate() { 
 
     // keeps track of whether it's time to update the BPM
     boolean QRS_detected = false; 
     
-    // only read data if ECG chip has detected that leads are attached to patient
+    // only read data if ECG chip has detected
+    // that leads are attached to patient
     boolean leads_are_on = (digitalRead(LEADS_OFF_PLUS_PIN) == 0)
                             && (digitalRead(LEADS_OFF_MINUS_PIN) == 0);
     if (leads_are_on) {     
@@ -990,7 +993,8 @@ void updateHeartRate() {
         
         foundTimeMicros = micros();
 
-        // use the time between when the last two peaks were detected to calculate BPM
+        // use the time between when the last 
+        // two peaks were detected to calculate BPM
         
         bpm_buff[bpm_buff_WR_idx] = (60.0 / 
            (((float) (foundTimeMicros - old_foundTimeMicros)) / 1000000.0));
@@ -1041,13 +1045,14 @@ float hp_sum = 0;
 float lp_sum = 0;
 
 // working variables for adaptive thresholding
-float treshold = 0;
+float threshold = 0;
 boolean triggered = false;
 int trig_time = 0;
 float win_max = 0;
 int win_idx = 0;
 
-// number of starting iterations, used to determine when moving windows are filled
+// number of starting iterations, used to
+// determine when moving windows are filled
 int number_iter = 0;
 
 boolean detect(float new_ecg_pt) {
@@ -1121,8 +1126,8 @@ boolean detect(float new_ecg_pt) {
   /* Adapative thresholding beat detection */
   // set initial threshold        
   if (number_iter < winSize) {
-    if (next_eval_pt > treshold) {
-      treshold = next_eval_pt;
+    if (next_eval_pt > threshold) {
+      threshold = next_eval_pt;
     }
     // only increment number_iter iff it is less than winSize
     // if it is bigger, then the counter serves no further purpose
@@ -1143,7 +1148,7 @@ boolean detect(float new_ecg_pt) {
   if (next_eval_pt > win_max) win_max = next_eval_pt;
   
   // find if we are above adaptive threshold
-  if (next_eval_pt > treshold && !triggered) {
+  if (next_eval_pt > threshold && !triggered) {
     triggered = true;
 
     return true;
@@ -1165,7 +1170,7 @@ boolean detect(float new_ecg_pt) {
                               / (float) (RAND_RES)) * ((0.1 - 0.01)));
     
     // compute new threshold
-    treshold = alpha * gamma * win_max + (1 - alpha) * treshold;
+    threshold = alpha * gamma * win_max + (1 - alpha) * threshold;
     
     // reset current window index
     win_idx = 0;
