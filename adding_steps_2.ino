@@ -103,11 +103,14 @@ const int FlashChipSelect = 21; // digital pin for flash chip CS pin
 
 #define NUM_BUFFS_STEP 3 // ***changing this changes the number of files in memory***
 
-#define DSIZE_STEP 8 // size of each unit of data stored in memory (two time stamps + step count)
+#define DSIZE_STEP 8 // size of each unit of data stored in memory
+                     // (two time stamps + step count)
 
-#define DATA_PER_FILE_STEP (FSIZE_STEP / DSIZE_STEP) // how many data can be stored per file
+// how many data can be stored per file
+#define DATA_PER_FILE_STEP (FSIZE_STEP / DSIZE_STEP) 
 
-#define STORAGE_LENGTH_STEP (DATA_PER_FILE_STEP * NUM_BUFFS_STEP) // how many data can be stored total
+// how many data can be stored total
+#define STORAGE_LENGTH_STEP (DATA_PER_FILE_STEP * NUM_BUFFS_STEP) 
 
 SerialFlashFile flashFilesStep[NUM_BUFFS_STEP]; // holds all the files 
 
@@ -119,10 +122,9 @@ unsigned long nextToRetrieveStep; // next location on the chip to read BPMs
                                   //    from and send them to the phone
 unsigned long nextToAckStep;      // next location that hasn't been confirmed received
 
-unsigned char toMemBuffStep[8];   // holds two time stamps and a step count on their way to the chip
-unsigned char fromMemBuffStep[8]; // two time stamps and a step count on their way back from the chip
-                                  // to be sent to the phone
-
+unsigned char toMemBuffStep[8];   // holds a time stamp + offset + step count on its way to memory
+unsigned char fromMemBuffStep[8]; // two time stamps and a step count on their way back from the 
+                                  // chip to be sent to the phone
 
 // Bluetooth stuff --------------------------------
 
@@ -138,8 +140,8 @@ unsigned char fromMemBuffStep[8]; // two time stamps and a step count on their w
 
 boolean ble_connected = false;  // keeps track of whether the Bluetooth is connected
 
-BLEPeripheral blePeripheral; // BLE Peripheral Device (the board you're programming)
-BLEService myService("aa7b3c40-f6ed-4ffc-bc29-5750c59e74b3"); // BLE Heart Rate Service
+BLEPeripheral blePeripheral; // BLE Peripheral Device (the Arduino)
+BLEService myService("aa7b3c40-f6ed-4ffc-bc29-5750c59e74b3"); 
 
 // Custom BLE characteristic to hold BPM
 BLECharacteristic bpmChar("b0351694-25e6-4eb5-918c-ca9403ddac47",  
@@ -162,7 +164,8 @@ BLECharacteristic checkinChar("3750215f-b147-4bdf-9271-0b32c1c5c49d",
 BLECharacteristic stepChar("81d4ef8b-bb65-4fef-b701-2d7d9061e492", 
     BLEWrite | BLENotify, BYTES_PER_PCKG_STEP); 
 
-BLECentral central = blePeripheral.central(); // the Blutooth central device (the phone)
+// the Blutooth central device (the phone)
+BLECentral central = blePeripheral.central();
     
 // ------------------------------------------------
 
@@ -179,8 +182,8 @@ BLECentral central = blePeripheral.central(); // the Blutooth central device (th
 #define RAND_RES 100000000
 
 // timing variables
-unsigned long foundTimeMicros = 0;        // time at which last QRS was found
-unsigned long old_foundTimeMicros = 0;    // time at which QRS before last was found
+unsigned long foundTimeMicros = 0;      // time at which last QRS was found
+unsigned long old_foundTimeMicros = 0;  // time at which QRS before last was found
 
 // interval at which to take samples and iterate algorithm (microseconds)
 const long PERIOD = 1000000 / winSize;
@@ -279,8 +282,8 @@ void setUpFlash() { // sets up the flash chip for memory management
     flashFilesStep[j] = SerialFlash.open(filename); // opening the file
   }
   
-  writeFileIndex = 0; // we need to keep track of which files we're currently
-  readFileIndex = 0; // reading and writing on
+  writeFileIndex = 0; // we need to keep track of which files 
+  readFileIndex = 0;  // we're currently reading and writing on 
   ackFileIndex = 0;
 
   nextToPlace = 0; // begin at the beginning of 
@@ -317,13 +320,13 @@ boolean create_if_not_exists (const char *filename) {
 void setUpBLE() {
   
     blePeripheral.setLocalName("Mint");
-    blePeripheral.setAdvertisedServiceUuid(myService.uuid());  // add the service UUID
+    blePeripheral.setAdvertisedServiceUuid(myService.uuid()); // add the service UUID
     blePeripheral.addAttribute(myService);// add the BLE service
     blePeripheral.addAttribute(bpmChar);  // add the BPM characteristic
     blePeripheral.addAttribute(batchChar);// add the BPM batch characteristic
     blePeripheral.addAttribute(ecgChar);  // add the ECG characteristic
     blePeripheral.addAttribute(checkinChar);  // add the checkin characteristic
-    blePeripheral.addAttribute(stepChar);  // add the checkin characteristic
+    blePeripheral.addAttribute(stepChar);     // add the checkin characteristic
 
   
     // Activate the BLE device.  It will start continuously transmitting BLE
@@ -484,7 +487,8 @@ void liveSend() {
     #endif
     
     // package the the BPM and time stamp, switching to big-endian
-    unsigned char bpmCharArray[BYTES_PER_PCKG] = { ts0, ts1, ts2, ts3, (unsigned char) fromMemBuff[0] };
+    unsigned char bpmCharArray[BYTES_PER_PCKG] 
+      = { ts0, ts1, ts2, ts3, (unsigned char) fromMemBuff[0] };
     bpmChar.setValue(bpmCharArray, BYTES_PER_PCKG); // send them to the phone
 
     lastTimeSent = timeStamp;
@@ -674,11 +678,14 @@ void switchReadFiles() {
 boolean caughtUp() {
 
   // calculate logical read and write indices 
-  int logicalWriteIndex = (writeFileIndex * DATA_PER_FILE) + (nextToPlace / DSIZE);
-  int logicalReadIndex = (readFileIndex * DATA_PER_FILE) + (nextToRetrieve / DSIZE);
+  int logicalWriteIndex = (writeFileIndex * DATA_PER_FILE)
+                            + (nextToPlace / DSIZE);
+  int logicalReadIndex = (readFileIndex * DATA_PER_FILE)
+                            + (nextToRetrieve / DSIZE);
 
   // figure out how many data units are between the write and read pointer
-  int distance = ((logicalWriteIndex - logicalReadIndex) + STORAGE_LENGTH) % STORAGE_LENGTH;
+  int distance = ((logicalWriteIndex - logicalReadIndex) + STORAGE_LENGTH)
+                   % STORAGE_LENGTH;
 
   // return true if there are at least enough data points left to fill a batch
   return (distance < NUM_PCKGS);
@@ -856,11 +863,14 @@ void switchReadFilesStep() {
 boolean caughtUpStep() {
 
   // calculate logical read and write indices 
-  int logicalWriteIndex = (writeFileIndexStep * DATA_PER_FILE_STEP) + (nextToPlaceStep / DSIZE_STEP);
-  int logicalReadIndex = (readFileIndexStep * DATA_PER_FILE_STEP) + (nextToRetrieveStep / DSIZE_STEP);
+  int logicalWriteIndex = (writeFileIndexStep * DATA_PER_FILE_STEP)
+                          + (nextToPlaceStep / DSIZE_STEP);
+  int logicalReadIndex = (readFileIndexStep * DATA_PER_FILE_STEP)
+                          + (nextToRetrieveStep / DSIZE_STEP);
 
   // figure out how many data units are between the write and read pointer
-  int distance = ((logicalWriteIndex - logicalReadIndex) + STORAGE_LENGTH_STEP) % STORAGE_LENGTH_STEP;
+  int distance = ((logicalWriteIndex - logicalReadIndex) + STORAGE_LENGTH_STEP)
+                    % STORAGE_LENGTH_STEP;
 
   // return true if there are at least enough data points left to fill a batch
   return (distance < NUM_PCKGS_STEP);
@@ -948,7 +958,8 @@ void updateHeartRate() {
     boolean QRS_detected = false; // keeps track of whether it's time to update the BPM
     
     // only read data if ECG chip has detected that leads are attached to patient
-    boolean leads_are_on = (digitalRead(LEADS_OFF_PLUS_PIN) == 0) && (digitalRead(LEADS_OFF_MINUS_PIN) == 0);
+    boolean leads_are_on = (digitalRead(LEADS_OFF_PLUS_PIN) == 0)
+                            && (digitalRead(LEADS_OFF_MINUS_PIN) == 0);
     if (leads_are_on) {     
            
       // read next ECG data point
@@ -975,7 +986,8 @@ void updateHeartRate() {
 
         // use the distance in time between when the last two peaks were detected to calculate BPM
         
-        bpm_buff[bpm_buff_WR_idx] = (60.0 / (((float) (foundTimeMicros - old_foundTimeMicros)) / 1000000.0));
+        bpm_buff[bpm_buff_WR_idx] = (60.0 / 
+           (((float) (foundTimeMicros - old_foundTimeMicros)) / 1000000.0));
         bpm_buff_WR_idx++;
         bpm_buff_WR_idx %= BPM_BUFFER_SIZE;
         bpm += bpm_buff[bpm_buff_RD_idx];
@@ -1142,7 +1154,8 @@ boolean detect(float new_ecg_pt) {
     
     // forgetting factor - rate at which we forget old observations
     // choose a random value between 0.01 and 0.1 for this, 
-    float alpha = 0.01 + ( ((float) random(0, RAND_RES) / (float) (RAND_RES)) * ((0.1 - 0.01)));
+    float alpha = 0.01 + ( ((float) random(0, RAND_RES) 
+                              / (float) (RAND_RES)) * ((0.1 - 0.01)));
     
     // compute new threshold
     treshold = alpha * gamma * win_max + (1 - alpha) * treshold;
