@@ -122,9 +122,9 @@ unsigned long nextToRetrieveStep; // next location on the chip to read BPMs
                                   //    from and send them to the phone
 unsigned long nextToAckStep;      // next location that hasn't been confirmed received
 
-unsigned char toMemBuffStep[8];   // holds a time stamp + offset + step count on its way to memory
-unsigned char fromMemBuffStep[8]; // two time stamps and a step count on their way back from the 
-                                  // chip to be sent to the phone
+unsigned char toMemBuffStep[8];   // holds a time stamp + offset + step count on its 
+unsigned char fromMemBuffStep[8]; // way to memory two time stamps and a step count on 
+                                  // their way back from the chip to be sent to the phone
 
 // Bluetooth stuff --------------------------------
 
@@ -525,10 +525,10 @@ void batchSend() {
   for (i = 0; i < NUM_PCKGS; i++) {
     if (retrieveFromMemory()) {
       unsigned long timeStamp = fromMemBuff[1]; // get the time stamp
-      unsigned char ts0 = timeStamp & 0xff;      // get each byte from the time stamp separately
-      unsigned char ts1 = (timeStamp >> 8) & 0xff;  // so that the time stamp can be sent in a
-      unsigned char ts2 = (timeStamp >> 16) & 0xff;    // bluetooth compatible format
-      unsigned char ts3 = (timeStamp >> 24) & 0xff;
+      unsigned char ts0 = timeStamp & 0xff;      // get each byte from the time 
+      unsigned char ts1 = (timeStamp >> 8) & 0xff; // stamp separately so that the 
+      unsigned char ts2 = (timeStamp >> 16) & 0xff;  // time stamp can be sent in 
+      unsigned char ts3 = (timeStamp >> 24) & 0xff;    // a bluetooth compatible format
 
       short offset = i * BYTES_PER_PCKG;
 
@@ -673,8 +673,8 @@ void switchReadFiles() {
   #endif
 }
 
-// Checks whether the read pointer is close enough to the write pointer to necessitate
-// sending data points one at a time instead of in batches
+// Checks whether the read pointer is close enough to the write pointer 
+// to necessitate sending data points one at a time instead of in batches
 boolean caughtUp() {
 
   // calculate logical read and write indices 
@@ -692,7 +692,7 @@ boolean caughtUp() {
   
 }
 
-// -------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------
 
 void checkForSteps() {
 
@@ -773,9 +773,10 @@ void checkForSteps() {
 void placeInMemoryStep() { 
 
   flashFilesStep[writeFileIndexStep].seek(nextToPlaceStep); // move cursor
-  
-  flashFilesStep[writeFileIndexStep].write(toMemBuffStep, DSIZE_STEP); // write to chip
-  nextToPlaceStep += DSIZE_STEP; // increment the offset to be written to next
+
+  // write to the chip and increment the offset to be written to next
+  flashFilesStep[writeFileIndexStep].write(toMemBuffStep, DSIZE_STEP); 
+  nextToPlaceStep += DSIZE_STEP; 
 
   // check if it's time to switch files
   if (nextToPlaceStep >= FSIZE_STEP) {
@@ -791,9 +792,10 @@ boolean retrieveFromMemoryStep() {
     return false; // if the read pointer has caught up to the write pointer,
                   // don't try to read any new data yet
   }
-  flashFilesStep[readFileIndexStep].seek(nextToRetrieveStep); // move cursor
-  flashFilesStep[readFileIndexStep].read(fromMemBuffStep, DSIZE_STEP); // read from chip
-  nextToRetrieveStep += DSIZE_STEP; // increment the offset to be read from next
+  // move cursor, read from chip, and increment the offset to be read from next
+  flashFilesStep[readFileIndexStep].seek(nextToRetrieveStep);
+  flashFilesStep[readFileIndexStep].read(fromMemBuffStep, DSIZE_STEP); 
+  nextToRetrieveStep += DSIZE_STEP;
 
   // check if it's time to switch files
   if (nextToRetrieveStep >= FSIZE_STEP) {
@@ -858,8 +860,8 @@ void switchReadFilesStep() {
   #endif
 }
 
-// Checks whether the read pointer is close enough to the write pointer to necessitate
-// sending data points one at a time instead of in batches
+// Checks whether the read pointer is close enough to the write pointer 
+// to necessitate sending data points one at a time instead of in batches
 boolean caughtUpStep() {
 
   // calculate logical read and write indices 
@@ -877,7 +879,7 @@ boolean caughtUpStep() {
   
 }
 
-// -------------------------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 
 // called periodically to make sure the phone is still connected
@@ -885,10 +887,10 @@ void checkin() {
   
   sentSinceCheckin = 0; // reset the time since the last checkin back to zero
 
-  unsigned char ts0 = lastTimeSent & 0xff;  // get each byte from the time stamp separately
-  unsigned char ts1 = (lastTimeSent >> 8) & 0xff; // so that the time stamp can be sent in 
-  unsigned char ts2 = (lastTimeSent >> 16) & 0xff;    // a bluetooth compatible format
-  unsigned char ts3 = (lastTimeSent >> 24) & 0xff;
+  unsigned char ts0 = lastTimeSent & 0xff;      // get each byte from the 
+  unsigned char ts1 = (lastTimeSent >> 8) & 0xff; // time stamp separately so that
+  unsigned char ts2 = (lastTimeSent >> 16) & 0xff;  // the time stamp can be sent in 
+  unsigned char ts3 = (lastTimeSent >> 24) & 0xff;    // a bluetooth compatible format
 
   // send a time stamp to the phone
   unsigned char lastTimeArray[4] = { ts0, ts1, ts2, ts3 };  
@@ -954,8 +956,9 @@ void checkin() {
 
 // interrupt handler: uses the QRS-detection algorithm to search for a new BPM
 void updateHeartRate() { 
- 
-    boolean QRS_detected = false; // keeps track of whether it's time to update the BPM
+
+    // keeps track of whether it's time to update the BPM
+    boolean QRS_detected = false; 
     
     // only read data if ECG chip has detected that leads are attached to patient
     boolean leads_are_on = (digitalRead(LEADS_OFF_PLUS_PIN) == 0)
@@ -967,11 +970,14 @@ void updateHeartRate() {
       
       if (ble_connected && safeToFill) {
         ecg_q_count++;
-        if (ecg_q_count > 2 && ecg_queue.count() < 70) { // we only need to send every nth ECG value to the phone
-                           // a lower value in this loop means a higher resolution
-                           // for the graph on the phone
-        
-          int ecg = map(next_ecg_pt, 0, 1023, 0, 100); // scale each measurement to fit on the graph
+
+        // we only need to send every nth ECG value to the phone
+        // a lower value in this loop means a higher resolution
+        // for the graph on the phone
+        if (ecg_q_count > 2 && ecg_queue.count() < 70) { 
+                           
+          // scale each measurement to fit on the graph
+          int ecg = map(next_ecg_pt, 0, 1023, 0, 100);
           ecg_queue.enqueue(ecg); // add each measurement to the queue
           ecg_q_count = 0;
         }
@@ -984,7 +990,7 @@ void updateHeartRate() {
         
         foundTimeMicros = micros();
 
-        // use the distance in time between when the last two peaks were detected to calculate BPM
+        // use the time between when the last two peaks were detected to calculate BPM
         
         bpm_buff[bpm_buff_WR_idx] = (60.0 / 
            (((float) (foundTimeMicros - old_foundTimeMicros)) / 1000000.0));
@@ -996,7 +1002,8 @@ void updateHeartRate() {
         if (tmp < 0) tmp += BPM_BUFFER_SIZE;
 
         if (timeInitiated) {
-          // bpm_queue.enqueue(bpm/BPM_BUFFER_SIZE); // sends the current average BPM to the queue to be printed
+          // sends the current average BPM to the queue to be printed
+          // bpm_queue.enqueue(bpm/BPM_BUFFER_SIZE);
           bpm_queue.enqueue(BPMcounter++); 
         }
     
