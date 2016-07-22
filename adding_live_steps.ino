@@ -31,21 +31,21 @@ https://github.com/blakeMilner/real_time_QRS_detection/blob/master/QRS_arduino/Q
 
 unsigned long BPMcounter; 
 
-#define ECG_PIN A0                 // the number of the ECG pin (analog)
-#define LED_PIN 13                 // indicates whether Bluetooth is connected
+#define ECG_PIN A0               // the number of the ECG pin (analog)
+#define LED_PIN 13               // indicates whether Bluetooth is connected
 
 // pins for leads off detection
-#define LEADS_OFF_PLUS_PIN 10      // the number of the LO+ pin (digital)
-#define LEADS_OFF_MINUS_PIN 11     // the number of the LO- pin (digital) 
+#define LEADS_OFF_PLUS_PIN 10    // the number of the LO+ pin (digital)
+#define LEADS_OFF_MINUS_PIN 11   // the number of the LO- pin (digital) 
 
 const int frequency = 5000; // rate at which the heart rate is checked
                             // (in microseconds): works out to 200 hz
 
-QueueArray<int> bpm_queue; // holds the BPMs to be printed
+QueueArray<unsigned long> bpmQueue; // holds the BPMs to be printed
 
-QueueArray<int> ecg_queue; // holds the ECGs to be printed
+QueueArray<int> ecgQueue; // holds the ECGs to be printed
 
-int ecg_q_count; // used to space out the ECG measurements sent to
+int ecgQCount; // used to space out the ECG measurements sent to
 
 boolean timeInitiated = false; // whether time has ever been set by phone
 
@@ -65,7 +65,7 @@ unsigned long stepEndTime;
 int stepCount;
 
 boolean detectingSteps;
-# define MAX_SECS_BETWEEN_STEPS 10
+# define MAX_SECS_BETWEEN_STEPS 1
 
 
 // BPM Memory management stuff ------------------------
@@ -101,7 +101,7 @@ const int FlashChipSelect = 21; // digital pin for flash chip CS pin
 
 #define FSIZE_STEP 128 // the size of a file on the flash chip
 
-#define NUM_BUFFS_STEP 3 // ***changing this changes the number of files in memory***
+#define NUM_BUFFS_STEP 3 // changing this changes the number of files in memory
 
 #define DSIZE_STEP 8 // size of each unit of data stored in memory
                      // (two time stamps + step count)
@@ -138,7 +138,7 @@ unsigned char fromMemBuffStep[8]; // two time stamps and a step count on their w
 #define NUM_PCKGS_STEP 2
 #define BATCH_SIZE_STEP (NUM_PCKGS_STEP * BYTES_PER_PCKG_STEP)
 
-boolean ble_connected = false;  // keeps track of whether the Bluetooth is connected
+boolean bleConnected = false;  // keeps track of whether the Bluetooth is connected
 
 BLEPeripheral blePeripheral; // BLE Peripheral Device (the Arduino)
 BLEService myService("aa7b3c40-f6ed-4ffc-bc29-5750c59e74b3"); 
@@ -160,7 +160,7 @@ BLECharacteristic checkinChar("3750215f-b147-4bdf-9271-0b32c1c5c49d",
     BLEWrite | BLENotify, 4);
 
 // Custom BLE characteristic to send steps 
-// (4 bytes for start time, 4 bytes for end time, 2 bytes for step count)
+// (4 bytes for start time, 2 bytes for offset, 2 bytes for step count)
 BLECharacteristic stepChar("81d4ef8b-bb65-4fef-b701-2d7d9061e492", 
     BLENotify, BYTES_PER_PCKG_STEP); 
 
@@ -177,7 +177,7 @@ BLECentral central = blePeripheral.central();
 
 #define M             5   // for high pass filter
 #define N             30  // for low pass filter
-#define winSize       200 // size of the window 
+#define win_size      200 // size of the window 
 #define HP_CONSTANT   ((float) 1 / (float) M)
 #define MAX_BPM       100
 
@@ -185,11 +185,11 @@ BLECentral central = blePeripheral.central();
 #define RAND_RES 100000000
 
 // timing variables
-unsigned long foundTimeMicros = 0;     // time at which last QRS was found
-unsigned long old_foundTimeMicros = 0; // time at which QRS before last was found
+unsigned long found_time_micros = 0;     // time at which last QRS was found
+unsigned long old_found_time_micros = 0; // time at which QRS before last was found
 
 // interval at which to take samples and iterate algorithm (microseconds)
-const long PERIOD = 1000000 / winSize;
+const long PERIOD = 1000000 / win_size;
 
 // circular buffer for BPM averaging
 float bpm = 0; 
@@ -208,12 +208,13 @@ void setup() { // called when the program starts
   #ifdef usb  
   Serial.begin(115200); // set up the serial monitor
   while(!Serial);     // wait for the serial monitor
-  ecg_queue.setPrinter(Serial); // allows the ecg queue to print error messages
+  ecgQueue.setPrinter(Serial); // allows the ecg queue to print error messages
+  bpmQueue.setPrinter(Serial);
   #endif
 
   sentSinceCheckin = 0;
   BPMcounter = 0;
-  ecg_q_count = 0;
+  ecgQCount = 0;
 
   setUpFlash(); // sets up the flash memory chip and creates files to store BPMs
 
@@ -258,7 +259,7 @@ void setUpFlash() { // sets up the flash chip for memory management
     char filename[6];
     fname.toCharArray(filename, 6);
 
-    if (!create_if_not_exists(filename)) { // creating the file
+    if (!createIfNotExists(filename)) { // creating the file
       #ifdef usb
       Serial.println("Not enough space to create files");
       #endif
@@ -276,7 +277,7 @@ void setUpFlash() { // sets up the flash chip for memory management
     char filename[10];
     fname.toCharArray(filename, 10);
 
-    if (!create_if_not_exists(filename)) { // creating the file
+    if (!createIfNotExists(filename)) { // creating the file
       #ifdef usb
       Serial.println("Not enough space to create step files");
       #endif
@@ -302,7 +303,7 @@ void setUpFlash() { // sets up the flash chip for memory management
 
 // creates a file if a file with that same name doesn't
 // exist already
-boolean create_if_not_exists (const char *filename) {
+boolean createIfNotExists (const char *filename) {
   if (!SerialFlash.exists(filename)) {
     #ifdef usb
     Serial.println("Creating file " + String(filename));
@@ -327,7 +328,7 @@ void setUpBLE() {
     blePeripheral.addAttribute(ecgChar);  // add the ECG characteristic
     blePeripheral.addAttribute(checkinChar);  // add the checkin characteristic
     blePeripheral.addAttribute(stepChar);     // add the step characteristic
-    blePeripheral.addAttribute(liveStepChar);     // add the live step characteristic
+    blePeripheral.addAttribute(liveStepChar); // add the live step characteristic
  
     // Activate the BLE device.  It will start continuously transmitting BLE
     // advertising packets and will be visible to remote BLE central devices
@@ -359,11 +360,11 @@ void setUpStepDetection() {
 
 void loop() { // called continuously
 
-  if (!bpm_queue.isEmpty()) { // check if there's the BPM to print
+  if (bpmQueue.count() >= 2) { // check if there's the BPM to print
 
     // remove a BPM from the queue and send it to memory
-    unsigned long heartRate = (unsigned long) bpm_queue.dequeue();
-    unsigned long timeStamp = now(); // get the current epoch time in seconds
+    unsigned long heartRate = bpmQueue.dequeue();
+    unsigned long timeStamp = bpmQueue.dequeue();
     
     toMemBuff[0] = heartRate; // put the BPM and time stamp into the buffer
     toMemBuff[1] = timeStamp; //   before placing the buffer's contents in memory
@@ -375,7 +376,7 @@ void loop() { // called continuously
 
   checkForSteps(); // see if any steps have been taken and, if so, process them
   
-  if (ble_connected) { // only consider sending data if we believe we're connected
+  if (bleConnected) { // only consider sending data if we believe we're connected
 
     #ifdef nate
     if (sentSinceCheckin > timeToCheckin) {
@@ -430,14 +431,14 @@ void tryToConnect() {
     // the initial batch of bluetooth packets you send will get dropped
     // on the floor
     delay(1000);
-    ble_connected = true; 
+    bleConnected = true; 
   }
 }
 
 // called after the phone disconnects, ties up loose ends
 void handleDisconnect() {
     safeToFill = false; // tells the ecg queue not to get filled
-    ble_connected = false; // keep track of whether bluetooth is connected
+    bleConnected = false; // keep track of whether bluetooth is connected
     #ifdef usb
     Serial.print("Disconnected from central: ");
     Serial.println(central.address());
@@ -562,13 +563,13 @@ void batchSend() {
 // send ECG measurements to the phone to be graphed
 void sendECG() {
   // check if there are at least 14 ECG measurements to print
-  if (ecg_queue.count() >= NUM_ECGS) {
+  if (ecgQueue.count() >= NUM_ECGS) {
       
      // remove 14 ECG measurements from the queue and package them
      unsigned char ecgCharArray[NUM_ECGS];
      int i;
      for (i = 0; i < NUM_ECGS; i++) {
-       ecgCharArray[i] = ecg_queue.dequeue();
+       ecgCharArray[i] = ecgQueue.dequeue();
      }
      
      // allow ECG measurements to be added to the queue   
@@ -707,7 +708,7 @@ void checkForSteps() {
       stepCount = latestCount;
       stepEndTime = currentTime;
 
-      if (ble_connected) {
+      if (bleConnected) {
         unsigned char sc0 = stepCount & 0xff;  
         unsigned char sc1 = (stepCount >> 8) & 0xff;
         unsigned char stepCountArr[2] = { sc0, sc1 };
@@ -934,25 +935,25 @@ void updateHeartRate() {
     
     // only read data if ECG chip has detected
     // that leads are attached to patient
-    boolean leads_are_on = (digitalRead(LEADS_OFF_PLUS_PIN) == 0)
+    boolean leadsAreOn = (digitalRead(LEADS_OFF_PLUS_PIN) == 0)
                             && (digitalRead(LEADS_OFF_MINUS_PIN) == 0);
-    if (leads_are_on) {     
+    if (leadsAreOn) {     
            
       // read next ECG data point
       int next_ecg_pt = analogRead(ECG_PIN);
       
-      if (ble_connected && safeToFill) {
-        ecg_q_count++;
+      if (bleConnected && safeToFill) {
+        ecgQCount++;
 
         // we only need to send every nth ECG value to the phone
         // a lower value in this loop means a higher resolution
         // for the graph on the phone
-        if (ecg_q_count > 2 && ecg_queue.count() < 70) { 
+        if (ecgQCount > 2 && ecgQueue.count() < 70) { 
                            
           // scale each measurement to fit on the graph
           int ecg = map(next_ecg_pt, 0, 1023, 0, 100);
-          ecg_queue.enqueue(ecg); // add each measurement to the queue
-          ecg_q_count = 0;
+          ecgQueue.enqueue(ecg); // add each measurement to the queue
+          ecgQCount = 0;
         }
       }
       
@@ -961,13 +962,13 @@ void updateHeartRate() {
             
       if (QRS_detected == true) {
         
-        foundTimeMicros = micros();
+        found_time_micros = micros();
 
         // use the time between when the last 
         // two peaks were detected to calculate BPM
         
         bpm_buff[bpm_buff_WR_idx] = (60.0 / 
-           (((float) (foundTimeMicros - old_foundTimeMicros)) / 1000000.0));
+           (((float) (found_time_micros - old_found_time_micros)) / 1000000.0));
         bpm_buff_WR_idx++;
         bpm_buff_WR_idx %= BPM_BUFFER_SIZE;
         bpm += bpm_buff[bpm_buff_RD_idx];
@@ -977,8 +978,9 @@ void updateHeartRate() {
 
         if (timeInitiated) {
           // sends the current average BPM to the queue to be printed
-          // bpm_queue.enqueue(bpm/BPM_BUFFER_SIZE);
-          bpm_queue.enqueue(BPMcounter++); 
+          // bpmQueue.enqueue((unsigned long) (bpm/BPM_BUFFER_SIZE));
+          bpmQueue.enqueue((unsigned long)BPMcounter++);
+          bpmQueue.enqueue(now());
         }
     
         bpm -= bpm_buff[tmp];
@@ -986,7 +988,7 @@ void updateHeartRate() {
         bpm_buff_RD_idx++;
         bpm_buff_RD_idx %= BPM_BUFFER_SIZE;
 
-        old_foundTimeMicros = foundTimeMicros;
+        old_found_time_micros = found_time_micros;
 
       }
     }
@@ -1095,11 +1097,11 @@ boolean detect(float new_ecg_pt) {
 
   /* Adapative thresholding beat detection */
   // set initial threshold        
-  if (number_iter < winSize) {
+  if (number_iter < win_size) {
     if (next_eval_pt > threshold) {
       threshold = next_eval_pt;
     }
-    // only increment number_iter iff it is less than winSize
+    // only increment number_iter iff it is less than win_size
     // if it is bigger, then the counter serves no further purpose
     number_iter++;
   }
@@ -1128,7 +1130,7 @@ boolean detect(float new_ecg_pt) {
           
   // adjust adaptive threshold using max of signal found 
   // in previous window            
-  if (win_idx++ >= winSize) {
+  if (win_idx++ >= win_size) {
     
     // weighting factor for determining the contribution of
     // the current peak value to the threshold adjustment
@@ -1136,7 +1138,7 @@ boolean detect(float new_ecg_pt) {
     
     // forgetting factor - rate at which we forget old observations
     // choose a random value between 0.01 and 0.1 for this, 
-    float alpha = 0.01 + ( ((float) random(0, RAND_RES) 
+    float alpha = 0.01 + (((float) random(0, RAND_RES) 
                               / (float) (RAND_RES)) * ((0.1 - 0.01)));
     
     // compute new threshold
