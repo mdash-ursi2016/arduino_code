@@ -731,7 +731,10 @@ void checkForSteps() {
       stepEndTime = currentTime;
 
       #ifdef actively
-      active = true;
+      if(!active){
+        lastActive = currentTime;
+        active = true;
+      }
       #endif
 
       if (bleConnected) {
@@ -746,9 +749,8 @@ void checkForSteps() {
     } else {
 
       #ifdef actively
-      if (active) {
+      if (active && currentTime - stepEndTime > 3) {
         activeTime += (currentTime - lastActive);
-        lastActive = currentTime;
         active = false;
       }
       #endif
@@ -761,7 +763,7 @@ void checkForSteps() {
         Serial.print(stepStartTime);
         Serial.print(", ");
         Serial.print(stepOffset);
-        Serial.print(", ");
+        Serial.print(", count: ");
         Serial.println(stepCount);
         #ifdef actively
         Serial.print("active time: ");
