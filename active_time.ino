@@ -749,8 +749,8 @@ void checkForSteps() {
     } else {
 
       #ifdef actively
-      if (active && currentTime - stepEndTime > 3) {
-        activeTime += (currentTime - lastActive);
+      if (active && currentTime - lastActive > 3) {
+        activeTime += (stepEndTime - lastActive);
         active = false;
       }
       #endif
