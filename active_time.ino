@@ -20,18 +20,16 @@
 #include <CurieTime.h>
 #include <SerialFlash.h>
 
-#define usb      // COMMENT THIS OUT IF CONNECTED TO BATTERY INSTEAD OF COMPUTER
-// #define nate     // COMMENT THIS OUT IF USING AN NRF APP INSTEAD OF NATE'S APP
+// #define usb      // COMMENT THIS OUT IF CONNECTED TO BATTERY INSTEAD OF COMPUTER
+#define nate     // COMMENT THIS OUT IF USING AN NRF APP INSTEAD OF NATE'S APP
 #define actively // COMMENT THIS OUT IF WE'RE NOT INTERESTED IN
                  // THE AMOUNT OF ACTIVE TIME PER STEP EXCURSION
 
 /* The portions of this code that implement the Pan-Tompkins QRS-detection algorithm were 
- * modified from code taken from Blake Milner's real_time_QRS_detection GitHub repository:
+ modified from code taken from Blake Milner's real_time_QRS_detection GitHub repository:
 https://github.com/blakeMilner/real_time_QRS_detection/blob/master/QRS_arduino/QRS.ino */
 
 // General BPM and ECG stuff --------------------------------
-
-unsigned long BPMcounter; 
 
 #define ECG_PIN A0               // the number of the ECG pin (analog)
 #define LED_PIN 13               // indicates whether Bluetooth is connected
@@ -73,12 +71,13 @@ boolean active;
 #endif
 
 boolean detectingSteps;
-# define MAX_SECS_BETWEEN_STEPS 10
+#define MAX_SECS_BETWEEN_STEPS 60
+#define ACTIVE_THRESHOLD 15
 
 
 // BPM Memory management stuff ------------------------
 
-#define FSIZE 256 // the size of a file on the flash chip
+#define FSIZE 128000 // the size of a file on the flash chip
 
 #define NUM_BUFFS 7 // ***changing this changes the number of files in memory***
 
@@ -110,12 +109,12 @@ const int FlashChipSelect = 21; // digital pin for flash chip CS pin
 #define NUM_BUFFS_STEP 3 // changing this changes the number of files in memory
 
 #ifndef actively
-#define FSIZE_STEP 128 // the size of a file on the flash chip
+#define FSIZE_STEP 128000 // the size of a file on the flash chip
 #define DSIZE_STEP 8  // size of each unit of data stored in memory
 #endif                // (time stamp + offset + step count)
 
 #ifdef actively
-#define FSIZE_STEP 160 // the size of a file on the flash chip
+#define FSIZE_STEP 128000 // the size of a file on the flash chip
 #define DSIZE_STEP 10 // size of each unit of data stored in memory
 #endif                // (time stamp + offset + step count + active time)
                      
@@ -232,7 +231,6 @@ void setup() { // called when the program starts
   #endif
 
   sentSinceCheckin = 0;
-  BPMcounter = 0;
   ecgQCount = 0;
 
   setUpFlash(); // sets up the flash memory chip and creates files to store BPMs
@@ -366,7 +364,7 @@ void setUpStepDetection() {
   
   CurieIMU.begin();
   // turn on step detection mode:
-  CurieIMU.setStepDetectionMode(CURIE_IMU_STEP_MODE_NORMAL);
+  CurieIMU.setStepDetectionMode(CURIE_IMU_STEP_MODE_SENSITIVE);
   // enable step counting:
   CurieIMU.setStepCountEnabled(true);
 
@@ -463,8 +461,8 @@ void handleDisconnect() {
     safeToFill = false; // tells the ecg queue not to get filled
     bleConnected = false; // keep track of whether bluetooth is connected
     #ifdef usb
-    Serial.print("Disconnected from central: ");
-    Serial.println(central.address());
+    Serial.println("Disconnected from central");
+    //Serial.println(central.address());
     #endif
     digitalWrite(LED_PIN, LOW); // turns off connection light
 }
@@ -749,7 +747,7 @@ void checkForSteps() {
     } else {
 
       #ifdef actively
-      if (active && currentTime - lastActive > 3) {
+      if (active && currentTime - lastActive > ACTIVE_THRESHOLD) {
         activeTime += (stepEndTime - lastActive);
         active = false;
       }
@@ -1029,8 +1027,7 @@ void updateHeartRate() {
 
         if (timeInitiated) {
           // sends the current average BPM to the queue to be printed
-          // bpmQueue.enqueue((unsigned long) (bpm/BPM_BUFFER_SIZE));
-          bpmQueue.enqueue((unsigned long)BPMcounter++);
+          bpmQueue.enqueue((unsigned long) (bpm/BPM_BUFFER_SIZE));
           bpmQueue.enqueue(now());
         }
     
