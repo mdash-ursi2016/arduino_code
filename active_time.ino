@@ -20,7 +20,7 @@
 #include <CurieTime.h>
 #include <SerialFlash.h>
 
-// #define usb      // COMMENT THIS OUT IF CONNECTED TO BATTERY INSTEAD OF COMPUTER
+#define usb      // COMMENT THIS OUT IF CONNECTED TO BATTERY INSTEAD OF COMPUTER
 #define nate     // COMMENT THIS OUT IF USING AN NRF APP INSTEAD OF NATE'S APP
 #define actively // COMMENT THIS OUT IF WE'RE NOT INTERESTED IN
                  // THE AMOUNT OF ACTIVE TIME PER STEP EXCURSION
@@ -71,8 +71,8 @@ boolean active;
 #endif
 
 boolean detectingSteps;
-#define MAX_SECS_BETWEEN_STEPS 60
-#define ACTIVE_THRESHOLD 15
+#define MAX_SECS_BETWEEN_STEPS 10
+#define ACTIVE_THRESHOLD 5
 
 
 // BPM Memory management stuff ------------------------
@@ -337,7 +337,7 @@ boolean createIfNotExists (const char *filename) {
 // and begins communication
 void setUpBLE() {
   
-    blePeripheral.setLocalName("Mint");
+    blePeripheral.setLocalName("Lola");
     blePeripheral.setAdvertisedServiceUuid(myService.uuid()); // add service UUID
     blePeripheral.addAttribute(myService);// add the BLE service
     blePeripheral.addAttribute(bpmChar);  // add the BPM characteristic
@@ -395,7 +395,9 @@ void loop() { // called continuously
 
   sendECG(); // attempt to send any current ECG measurements to the phone
 
-  checkForSteps(); // see if any steps have been taken and, if so, process them
+  if(timeInitiated){
+    checkForSteps(); // see if any steps have been taken and, if so, process them
+  }
   
   if (bleConnected) { // only consider sending data if we believe we're connected
 
