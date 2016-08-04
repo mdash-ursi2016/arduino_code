@@ -20,7 +20,7 @@
 #include <CurieTime.h>
 #include <SerialFlash.h>
 
-#define usb      // COMMENT THIS OUT IF CONNECTED TO BATTERY INSTEAD OF COMPUTER
+// #define usb      // COMMENT THIS OUT IF CONNECTED TO BATTERY INSTEAD OF COMPUTER
 #define nate     // COMMENT THIS OUT IF USING AN NRF APP INSTEAD OF NATE'S APP
 #define actively // COMMENT THIS OUT IF WE'RE NOT INTERESTED IN
                  // THE AMOUNT OF ACTIVE TIME PER STEP EXCURSION
@@ -29,57 +29,12 @@
  modified from code taken from Blake Milner's real_time_QRS_detection GitHub repository:
 https://github.com/blakeMilner/real_time_QRS_detection/blob/master/QRS_arduino/QRS.ino */
 
-// General BPM and ECG stuff --------------------------------
-
-#define ECG_PIN A0               // the number of the ECG pin (analog)
-#define LED_PIN 13               // indicates whether Bluetooth is connected
-
-// pins for leads off detection
-#define LEADS_OFF_PLUS_PIN 10    // the number of the LO+ pin (digital)
-#define LEADS_OFF_MINUS_PIN 11   // the number of the LO- pin (digital) 
-
-const int frequency = 5000; // rate at which the heart rate is checked
-                            // (in microseconds): works out to 200 hz
-
-QueueArray<unsigned long> bpmQueue; // holds the BPMs to be printed
-
-QueueArray<int> ecgQueue; // holds the ECGs to be printed
-
-int ecgQCount; // used to space out the ECG measurements sent to
-
-boolean timeInitiated = false; // whether time has ever been set by phone
-
-boolean safeToFill = true; // used to prevent the ECG measurement queue
-                           // from being added to too early after the 
-                           // phone has recently reconnected
-
-unsigned long lastTimeSent;
-int sentSinceCheckin;
-#define timeToCheckin 10
-
-
-// General Step Detection stuff ------------------------
-
-unsigned long stepStartTime;
-unsigned long stepEndTime;
-int stepCount;
-
-#ifdef actively
-unsigned long lastActive;
-unsigned long activeTime;
-boolean active;
-#endif
-
-boolean detectingSteps;
-#define MAX_SECS_BETWEEN_STEPS 10
-#define ACTIVE_THRESHOLD 5
-
 
 // BPM Memory management stuff ------------------------
 
 #define FSIZE 128000 // the size of a file on the flash chip
 
-#define NUM_BUFFS 7 // ***changing this changes the number of files in memory***
+#define NUM_BUFFS 11 // changing this changes the number of files in memory
 
 #define DSIZE 8 // size of each unit of data stored in memory (BPM + time stamp)
 
@@ -134,18 +89,89 @@ unsigned long nextToRetrieveStep; // next location on the chip to read BPMs
                                   // from and send them to the phone
 
 unsigned char toMemBuffStep[DSIZE_STEP];   // holds a time stamp + offset + step count on its
-                                  // way to memory 
+                                           // way to memory 
 unsigned char fromMemBuffStep[DSIZE_STEP]; // two time stamps and a step count on their way 
-                                  // back from the chip to be sent to the phone
+                                           // back from the chip to be sent to the phone
+                                           
+
+// General BPM and ECG stuff --------------------------------
+
+#define ECG_PIN A0              // the number of the ECG pin (analog)
+#define LED_PIN 13              // indicates whether Bluetooth is connected
+
+// pins for leads off detection
+#define LEADS_OFF_PLUS_PIN 10   // the number of the LO+ pin (digital)
+#define LEADS_OFF_MINUS_PIN 11  // the number of the LO- pin (digital) 
+
+const int frequency = 5000; // rate at which the heart rate is checked
+                            // (in microseconds): works out to 200 hz
+
+QueueArray<unsigned long> bpmQueue; // holds the BPMs to be printed
+
+QueueArray<int> ecgQueue; // holds the ECGs to be printed
+
+int ecgQCount; // used to space out the ECG measurements sent to
+
+boolean timeInitiated = false; // whether time has ever been set by phone
+
+boolean safeToFill = true; // used to prevent the ECG measurement queue
+                           // from being added to too early after the 
+                           // phone has recently reconnected
+
+// variables used for the periodically checking in with the phone to make 
+// sure it hasn't gone out of range
+unsigned long lastTimeSent; // the time stamp of the most recent data point
+                            // send to the phone
+int sentSinceCheckin;    // the amount of BPMs sent since we last checked in
+#define timeToCheckin 10 // the seconds between times when we check in
+                         // with the phone to make sure it's still connected
+
+
+// General Step Detection stuff ------------------------
+
+unsigned long stepStartTime; // the time the last excursion started
+unsigned long stepEndTime;   // the last time a step was recorded
+int stepCount;               // the step count of the current excursion
+
+#ifdef actively
+unsigned long lastActive; // the last time a step was taken
+unsigned long activeTime; // the number of seconds the user has been active so
+                          // far in the current excursion
+boolean active; // keeps track of whether the user is currently "active," 
+                // meaning they've taken a step recently
+#endif
+
+// keeps track of whether we're currently in an excursion
+boolean detectingSteps;
+
+// the number of seconds a user can go without taking a step
+// before the excursion is considered over
+#define MAX_SECS_BETWEEN_STEPS 60 
+
+// the number of seconds a user can go without taking a step
+// before they are 
+#define ACTIVE_THRESHOLD 15
 
 // Bluetooth stuff --------------------------------
 
+// the number of bytes it takes to send a BPM + time stamp
+// via Bluetooth (1 for the BPM and 4 for the time stamp)
 #define BYTES_PER_PCKG 5
+
+// the number of packages that can be send in one batch 
 #define NUM_PCKGS 4
+
+// 4 packages of 5 bytes is 20 bytes total, the maximum
+//  size of a Bluetooth packet
 #define BATCH_SIZE (NUM_PCKGS * BYTES_PER_PCKG)
 
-#define NUM_ECGS 14
+// the number of ECGs sent at a time
+#define NUM_ECGS 20
 
+// the number of bytes it takes to send a step package
+// (four for the start time, 2 for the offset, 2 for
+//  the number of steps, and 2 extra if we want to 
+//  include the number of active seconds)
 #ifndef actively
 #define BYTES_PER_PCKG_STEP 8
 #endif
@@ -153,6 +179,10 @@ unsigned char fromMemBuffStep[DSIZE_STEP]; // two time stamps and a step count o
 #define BYTES_PER_PCKG_STEP 10
 #endif
 
+// the number of step count packages we can fit in one
+// Bluetooth batch. It's always 2 because, whether we're sending
+// packages of 8 or 10 bytes, 2 is the smallest amount that will
+// fit under our maximum of 20 bytes
 #define NUM_PCKGS_STEP 2
 #define BATCH_SIZE_STEP (NUM_PCKGS_STEP * BYTES_PER_PCKG_STEP)
 
@@ -199,7 +229,7 @@ BLECentral central = blePeripheral.central();
 #define HP_CONSTANT   ((float) 1 / (float) M)
 #define MAX_BPM       100
 
-// resolution of RNG
+// resolution of random number generator
 #define RAND_RES 100000000
 
 // timing variables
@@ -215,7 +245,6 @@ float bpm = 0;
 unsigned long bpm_buff[BPM_BUFFER_SIZE] = {0};
 int bpm_buff_WR_idx = 0;
 int bpm_buff_RD_idx = 0;
-
 int tmp = 0;
 
 // ----------------------------------------------------------------------------
@@ -337,7 +366,7 @@ boolean createIfNotExists (const char *filename) {
 // and begins communication
 void setUpBLE() {
   
-    blePeripheral.setLocalName("Lola");
+    blePeripheral.setLocalName("R. Dinny");
     blePeripheral.setAdvertisedServiceUuid(myService.uuid()); // add service UUID
     blePeripheral.addAttribute(myService);// add the BLE service
     blePeripheral.addAttribute(bpmChar);  // add the BPM characteristic
@@ -372,7 +401,6 @@ void setUpStepDetection() {
   // an excursion
   detectingSteps = false;
   stepCount = 0;
-
   #ifdef actively
   active = false;
   #endif
@@ -569,10 +597,6 @@ void batchSend() {
       batchCharArray[offset+3] = ts3;
       batchCharArray[offset+4] = (unsigned char) fromMemBuff[0];
 
-    } else {
-      #ifdef usb
-      Serial.println("not reached");
-      #endif
     }
   }
 
@@ -585,10 +609,10 @@ void batchSend() {
 
 // send ECG measurements to the phone to be graphed
 void sendECG() {
-  // check if there are at least 14 ECG measurements to print
+  // check if there are at least 20 ECG measurements to print
   if (ecgQueue.count() >= NUM_ECGS) {
       
-     // remove 14 ECG measurements from the queue and package them
+     // remove 20 ECG measurements from the queue and package them
      unsigned char ecgCharArray[NUM_ECGS];
      int i;
      for (i = 0; i < NUM_ECGS; i++) {
@@ -598,7 +622,7 @@ void sendECG() {
      // allow ECG measurements to be added to the queue   
      safeToFill = true; 
      
-     // send the array of 14 ECG measurements to the phone to be graphed
+     // send the array of 20 ECG measurements to the phone to be graphed
      ecgChar.setValue(ecgCharArray, NUM_ECGS); 
                                          
      } else {    
@@ -721,15 +745,27 @@ void checkForSteps() {
 
   // if we're currently in the middle of an excursion...
   if (detectingSteps) {
-    
+
+    // get the latest step count from the step counter
     int latestCount = CurieIMU.getStepCount();
+    // get the current time
     unsigned long currentTime = now();
-    
+
+    // if the step count has changed
     if (stepCount != latestCount) {
 
+      // update the step count so it can be
+      // displayed on the phone
       stepCount = latestCount;
+
+      // update the last time that the 
+      // person took a step
       stepEndTime = currentTime;
 
+      // if the person had not previously been active,
+      // we declare that they are now active and record
+      // the time that they became active so that we
+      // can later calculate how long they were active
       #ifdef actively
       if(!active){
         lastActive = currentTime;
@@ -737,6 +773,8 @@ void checkForSteps() {
       }
       #endif
 
+      // if we're currently connected to the phone,
+      // we send it the latest step count 
       if (bleConnected) {
         unsigned char sc0 = stepCount & 0xff;  
         unsigned char sc1 = (stepCount >> 8) & 0xff;
@@ -744,19 +782,23 @@ void checkForSteps() {
         liveStepChar.setValue(stepCountArr, 2);
       }
 
-    // if no steps have been taken for a certain amount of time, we
-    // consider the excursion to be over
+
     } else {
 
+      // if no steps have been taken for a certain amount of time,
+      // we stop recording "active" time
       #ifdef actively
       if (active && currentTime - lastActive > ACTIVE_THRESHOLD) {
         activeTime += (stepEndTime - lastActive);
         active = false;
       }
       #endif
-            
+
+      // if no steps have been taken for a certain amount of time, we
+      // consider the excursion to be over
       if (currentTime - stepEndTime > MAX_SECS_BETWEEN_STEPS) {
 
+        // calculate the length of the excursion
         unsigned long stepOffset = stepEndTime - stepStartTime;
 
         #ifdef usb
@@ -771,6 +813,9 @@ void checkForSteps() {
         #endif
         #endif
 
+        // send the start time, excursion length, number of
+        // steps taken and optional active time to memory
+        
         toMemBuffStep[0] = stepStartTime & 0xff;      
         toMemBuffStep[1] = (stepStartTime >> 8) & 0xff;  
         toMemBuffStep[2] = (stepStartTime >> 16) & 0xff;   
@@ -787,8 +832,7 @@ void checkForSteps() {
         toMemBuffStep[9] = (activeTime >> 8) & 0xff; 
         #endif
         
-        placeInMemoryStep(); // store the start and end times and step count
-                             //   on the flash chip
+        placeInMemoryStep(); // store the excursion on the flash chip
         
         // reset the step count back to 0 for the next excursion
         CurieIMU.resetStepCount();
@@ -935,9 +979,6 @@ void checkin() {
       Serial.println("failure");
       #endif
     }
-    handleDisconnect(); // when disconnect starts working,
-                        // this may get called twice, so we
-                        // may need to delete this call
 
     // move read pointer back toe the position after the last data
     // whose receipt was confirmed by the phone
@@ -1044,7 +1085,7 @@ void updateHeartRate() {
     }
 }
 
-/* Portion pertaining to Pan-Tompkins QRS detection */
+// Portion pertaining to Pan-Tompkins QRS detection -----------------------
 
 // circular buffer for input ecg signal
 // we need to keep a history of M + 1 samples for HP filter
