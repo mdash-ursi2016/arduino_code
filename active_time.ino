@@ -20,7 +20,7 @@
 #include <CurieTime.h>
 #include <SerialFlash.h>
 
-// #define usb      // COMMENT THIS OUT IF CONNECTED TO BATTERY INSTEAD OF COMPUTER
+#define usb      // COMMENT THIS OUT IF CONNECTED TO BATTERY INSTEAD OF COMPUTER
 #define nate     // COMMENT THIS OUT IF USING AN NRF APP INSTEAD OF NATE'S APP
 #define actively // COMMENT THIS OUT IF WE'RE NOT INTERESTED IN
                  // THE AMOUNT OF ACTIVE TIME PER STEP EXCURSION
@@ -302,8 +302,9 @@ void setUpFlash() { // sets up the flash chip for memory management
   
     String fname = "file";
     fname = fname + String(i);  // creating the file name
-    char filename[6];
-    fname.toCharArray(filename, 6);
+    int fname_size = fname.length() + 1;
+    char filename[fname_size];
+    fname.toCharArray(filename, fname_size);
 
     if (!createIfNotExists(filename)) { // creating the file
       #ifdef usb
@@ -320,8 +321,9 @@ void setUpFlash() { // sets up the flash chip for memory management
   
     String fname = "stepfile";
     fname = fname + String(j);  // creating the file name
-    char filename[10];
-    fname.toCharArray(filename, 10);
+    int fname_size = fname.length() + 1;
+    char filename[fname_size];
+    fname.toCharArray(filename, fname_size);
 
     if (!createIfNotExists(filename)) { // creating the file
       #ifdef usb
@@ -472,9 +474,9 @@ void tryToConnect() {
     obtainInitTime();
     #endif
 
-    // until this has been set to true for the first time, no BPMs
-    // can be recorded because they're time stamps would be in 1970S
-    timeInitiated = true;
+    while(!timeInitiated){
+      delay(1);
+    }
     
     digitalWrite(LED_PIN, HIGH); // turn on the connection light
 
@@ -518,6 +520,10 @@ void obtainInitTime() {
   unsigned long initTime = ts0 | ts1 | ts2 | ts3;
 
   setTime(initTime); // set the time using the CurieTime library
+
+  // until this has been set to true for the first time, no BPMs
+  // can be recorded because their time stamps would be in 1970
+  timeInitiated = true;
 
   #ifdef usb
   Serial.println("time has been set");
