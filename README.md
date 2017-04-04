@@ -9,5 +9,5 @@ it retrieves the BPMs and steps along with their time information from the chip
 and sends them to the phone live via a custom Bluetooth Low Energy service. It 
 also sends live ECG measurements to the phone for a graph of the heart beat. 
 When the phone is disconnected for a while and then reconnects, the device 
-quickly sends all the accumulated BPM + time stamp data to the phone in bathces
+quickly sends all the accumulated BPM + time stamp data to the phone in batches
 and then resumes live updating.
